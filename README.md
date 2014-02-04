@@ -3,6 +3,14 @@ KAUST SIGMOD '14
 
 Code and data for our SIGMOD '14 contest submission.
 
+## Quickstart
+
+   * Clone: `git clone https://github.com/emaadmanzoor/sigmod14.git`
+   * Make changes: Edit `README.md` to add your e-mail.
+   * View changes: `git diff`
+   * Commit: `git commit -m 'Added e-mail`
+   * Push: `git push`
+
 ## Code
 
 `TODO`
@@ -27,3 +35,9 @@ Answers for the 1K network:
    * `1k-answers2.txt`: Type 2 (interests with large communities)
    * `1k-answers3.txt`: Type 3 (socialization suggestion)
    * `1k-answers4.txt`: Type 4 (closeness centrality)
+
+Team:
+
+   * emaadahmed.manzoor@kaust.edu.sa
+   * `TODO`
+   * `TODO`
