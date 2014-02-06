@@ -1,0 +1,58 @@
+Feb 4
+
+- Understood query types
+
+- Can Cypher be used to solve these queries?
+
+  Questions:
+  - Q1: Does replies(p1,p2) + replies(p2,p2) > x, or
+        replies(p1,p2) > x && replies(p2,p1) > x, or
+        replies(p1,p2) > x || repleis(p2,p1) > x?
+
+Feb 6
+
+Visualization
+
+- Let's visualize the graph
+- There is a way to import graph into neo4j
+  https://github.com/ldbc/ldbc_socialnet_bm_neo4j
+
+  Neo4j work:
+  - git clone https://github.com/ldbc/ldbc_socialnet_bm_neo4j.git
+    cd ldbc_socialnet_bm_neo4j
+    ./build.sh
+  - Modify src/main/resources/ldbc_neo4j.properties
+    data_dir=../../data/outputDir-1k/
+  - Modify pom.xml:
+    https://github.com/ldbc/ldbc_socialnet_bm_neo4j/issues/1
+  - Import into neo4j: (export MAVEN_OPTS=-Xmx100g)
+    mvn exec:java -Dexec.mainClass=com.ldbc.socialnet.workload.neo4j.load.LdbcSocialNeworkNeo4jImporter
+      This takes some time
+
+- Got the neo4j importer running on the big machine
+  - needs java7
+  - needs git-1.7
+  - needs maven
+
+- Install neo4j
+
+- Imported the network
+  modify conf/neo4j-server.properties
+    org.neo4j.server.database.location=/home/manzooe/dev/ldbc_socialnet_bm_neo4j/db
+    org.neo4j.server.webserver.address=0.0.0.0
+
+- Visualized the network
+  Open: 10.68.202.47:7474 
+
+Others
+
+- Meeting with Tariq and Tris, split work (due Sunday, Feb 9, 8-10PM)
+  - Me: Q1 and Q2, brute-force correct implementation
+  - Tariq: Q3 and Q4, brute-force correct implementation
+  - Tris: Find a fast algorithm to find the largest SCC in a graph
+
+TODO:
+
+- Verify the meaning of query 1 from the visualization
+  and/or asking on the forum
+- Implement Q1 and Q2, verify.
