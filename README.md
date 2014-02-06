@@ -39,5 +39,5 @@ Answers for the 1K network:
 Team:
 
    * emaadahmed.manzoor@kaust.edu.sa
-   * `TODO`
-   * `TODO`
+   * tariq.alturkestani@kaust.edu.sa
+   * trisevgeni.rapakoulia@kaust.edu.sa
