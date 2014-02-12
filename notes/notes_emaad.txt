@@ -51,8 +51,16 @@ Others
   - Tariq: Q3 and Q4, brute-force correct implementation
   - Tris: Find a fast algorithm to find the largest SCC in a graph
 
+Feb 7-9 --
+
+Feb 12
+
+  - In the test data, nodes 523 and 600 don't know anyone
+  - Comments are commentID concatenated with machine number
+    https://github.com/ldbc/ldbc_socialnet_bm/blob/master/ldbc_socialnet_dbgen/src/main/java/ldbc/socialnet/dbgen/serializer/CSV.java#L687
+  - The person_knows_person.cvs relationship is undirected
+  - Completed naive query 1 implementation, verified with test output
+
 TODO:
 
-- Verify the meaning of query 1 from the visualization
-  and/or asking on the forum
-- Implement Q1 and Q2, verify.
+- Implement Q2 with Tris and verify.

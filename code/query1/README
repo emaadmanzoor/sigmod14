@@ -1,0 +1,4 @@
+Run from within this query1/directory:
+
+g++ -std=c++11 query1.cpp -o query1
+./query1 ../data/outputDir-1k/ ../data/1k-queries1.txt
