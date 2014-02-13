@@ -1,0 +1,5 @@
+Run from within this directory:
+
+g++ -std=c++11 query1and2.cpp -o query1and2
+./query1and2 ../data/outputDir-1k/ ../data/1k-queries1.txt
+./query1and2 ../data/outputDir-1k/ ../data/1k-queries2.txt

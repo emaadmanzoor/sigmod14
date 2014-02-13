@@ -61,6 +61,12 @@ Feb 12
   - The person_knows_person.cvs relationship is undirected
   - Completed naive query 1 implementation, verified with test output
 
-TODO:
+Feb 13
+  - Be careful of spaces in the provided queries when reading dates
+  - The graphs seem to have many small components for tags, the largest in 1k nodes = 22 nodes
+  - Query 2 requires ties to be broken by "increasing" lexicographical order, needs custom comparator to sort
+  - Completed naive query 2 implementation, verified with test output
 
-- Implement Q2 with Tris and verify.
+TODO:
+  - Work with Tariq to complete Q3 and Q4
+  - Work with Tris to find algorithmic improvements to Q1 and Q2
