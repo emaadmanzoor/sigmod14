@@ -1,0 +1,9 @@
+PersonID->PersonLocation
+tail ../data/tiny/outputDir-1k/person_isLocatedIn_place.csv -n+2 | cut -f 1,2 -d '|' > exp
+
+PersonID->Org
+tail ../data/tiny/outputDir-1k/person_studyAt_organisation.csv -n+2 | cut -f 1,2 -d '|' > exp
+tail ../data/tiny/outputDir-1k/person_workAt_organisation.csv -n+2 | cut -f 1,2 -d '|' >> exp
+
+Org->OrgLocation
+tail ../data/tiny/outputDir-1k/organisation_isLocatedIn_place.csv -n+2 | cut -f 1,2 -d '|' > exp
