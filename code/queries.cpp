@@ -38,7 +38,7 @@ vector< unordered_set<int> > personStudyCities; // Person->StudyCity
 vector< unordered_set<int> > personWorkCountries; // Person->WorkCity
 vector<int> personInCity; // Person->InCity
 vector<int> parentLocation; // City -> Country, Country -> Continent
-unordered_map<string, int> placeNameToId;
+unordered_map< string, vector<int> > placeNameToId;
 
 unordered_map<int, string> tagName;
 unordered_map<int, unordered_set<int>> tagPersons;
@@ -262,7 +262,7 @@ void readPlaceNames(string placeNameFile) {
     st.str(field);
     st >> placeName;
 
-    placeNameToId[placeName] = placeId;
+    placeNameToId[placeName].push_back(placeId);
     //cout << placeNameToId[placeName] << "|" << placeName << endl;
   }
 
@@ -648,43 +648,47 @@ bool isValidPerson(int personId, int tagId, string date) {
  *  parentLocation[parentLocation[workCity[person]]] = p
  *  parentLocation[parentLocation[studyCity[person]]] = p
  */
-bool isValidPersonLocation(int personId, int placeId) {
-  if (personInCity[personId] == placeId ||
-      parentLocation[personInCity[personId]] == placeId ||
-      parentLocation[parentLocation[personInCity[personId]]] == placeId)
-    return true;
+bool isValidPersonLocation(int personId, vector<int> placeIds) {
+  for (unsigned int i = 0; i < placeIds.size(); i++) {
+    int placeId = placeIds[i];
 
-  if (personId == -1) {
-    cout << "Target: " << placeId << endl;
-    cout << "In city: " << personInCity[personId] << endl;
-    cout << "In country: " << parentLocation[personInCity[personId]] << endl;
-    cout << "In continent: " << parentLocation[parentLocation[personInCity[personId]]] << endl;
-  }
-
-  unordered_set<int> studyCities = personStudyCities[personId];
-  for (unordered_set<int>::iterator it = studyCities.begin();
-       it != studyCities.end(); it++) {
-    if (personId == -1) {
-      cout << "Study city: " << *it << endl;
-      cout << "Study country: " << parentLocation[*it] << endl;
-      cout << "Study continent: " << parentLocation[parentLocation[*it]] << endl;
-    }
-    if (*it == placeId || // p is a city
-        parentLocation[*it] == placeId || // p is a country
-        parentLocation[parentLocation[*it]] == placeId) // p is a continent
+    if (personInCity[personId] == placeId ||
+        parentLocation[personInCity[personId]] == placeId ||
+        parentLocation[parentLocation[personInCity[personId]]] == placeId)
       return true;
-  }
 
-  unordered_set<int> workCountries = personWorkCountries[personId];
-  for (unordered_set<int>::iterator it = workCountries.begin();
-       it != workCountries.end(); it++) {
     if (personId == -1) {
-      cout << "Work country: " << *it << endl;
-      cout << "Work continent: " << parentLocation[*it] << endl;
+      cout << "Target: " << placeId << endl;
+      cout << "In city: " << personInCity[personId] << endl;
+      cout << "In country: " << parentLocation[personInCity[personId]] << endl;
+      cout << "In continent: " << parentLocation[parentLocation[personInCity[personId]]] << endl;
     }
-    if (*it == placeId || // p is a country
-        parentLocation[*it] == placeId) // p is a continent
-      return true;
+
+    unordered_set<int> studyCities = personStudyCities[personId];
+    for (unordered_set<int>::iterator it = studyCities.begin();
+         it != studyCities.end(); it++) {
+      if (personId == -1) {
+        cout << "Study city: " << *it << endl;
+        cout << "Study country: " << parentLocation[*it] << endl;
+        cout << "Study continent: " << parentLocation[parentLocation[*it]] << endl;
+      }
+      if (*it == placeId || // p is a city
+          parentLocation[*it] == placeId || // p is a country
+          parentLocation[parentLocation[*it]] == placeId) // p is a continent
+        return true;
+    }
+
+    unordered_set<int> workCountries = personWorkCountries[personId];
+    for (unordered_set<int>::iterator it = workCountries.begin();
+         it != workCountries.end(); it++) {
+      if (personId == -1) {
+        cout << "Work country: " << *it << endl;
+        cout << "Work continent: " << parentLocation[*it] << endl;
+      }
+      if (*it == placeId || // p is a country
+          parentLocation[*it] == placeId) // p is a continent
+        return true;
+    }
   }
 
   return false;
@@ -805,7 +809,7 @@ vector< pair<int,string> > findTopkTags(int k, string date) {
 }
 
 vector< pair< int, pair<unsigned int, unsigned int> > >
-findTopkPairs(int k, int maxHops, int placeId) {
+findTopkPairs(int k, int maxHops, vector<int> placeIds) {
 
   //cout << "k=" << k << ", h=" << maxHops << ", p=" << placeId << endl;
 
@@ -813,7 +817,7 @@ findTopkPairs(int k, int maxHops, int placeId) {
 
   for (unsigned int i = 0; i < nverts; i++) {
     // Start a h-hop DFS from node i
-    if (!isValidPersonLocation(i, placeId))
+    if (!isValidPersonLocation(i, placeIds))
       continue;
 
     //cout << "DFS from " << i << endl;
@@ -833,7 +837,7 @@ findTopkPairs(int k, int maxHops, int placeId) {
         continue;
 
       if (!isCandidate[u] && u > i &&
-          isValidPersonLocation(u, placeId)) { // TODO: Verify
+          isValidPersonLocation(u, placeIds)) { // TODO: Verify
 
         int numberOfCommonTags = getNumberOfCommonTags(i, u);
         candidates.push_back(make_pair(numberOfCommonTags,
@@ -912,11 +916,15 @@ void solveQueries(string queryFile) {
       date = date.substr(1, string::npos); // remove first space char
 
       vector< pair<int,string> > topktags = findTopkTags(k, date);
-      for (unsigned int i = 0; i < k && i < topktags.size(); i++)
-        cout << topktags[i].second << " ";
-      cout << "% component sizes ";
-      for (unsigned int i = 0; i < k && i < topktags.size(); i++)
-        cout << topktags[i].first << " ";
+      if (topktags.size() > 0)
+        cout << topktags[0].second;
+      for (unsigned int i = 1; i < k && i < topktags.size(); i++)
+        cout << " " << topktags[i].second;
+      cout << " % component sizes ";
+      if (topktags.size() > 0)
+        cout << topktags[0].first;
+      for (unsigned int i = 1; i < k && i < topktags.size(); i++)
+        cout << " " << topktags[i].first;
       cout << endl;
     } else if (queryType.compare("query3") == 0) {
       unsigned int k;
