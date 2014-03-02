@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <algorithm>
 #include <stack>
+#include <queue>
 
 using namespace std;
 
@@ -28,6 +29,10 @@ using namespace std;
   }
 } Person;*/
 
+// Function prototypes
+vector<int> shortestPath(int source, int minWeight, int tagId);
+unordered_map< int, vector<int> > readForumTags(string forumTagsFile);
+
 // Graph
 typedef pair<unsigned int, int> Edge;
 vector<vector<Edge>> graph;
@@ -40,7 +45,11 @@ vector<int> personInCity; // Person->InCity
 vector<int> parentLocation; // City -> Country, Country -> Continent
 unordered_map< string, vector<int> > placeNameToId;
 
-unordered_map<int, string> tagName;
+// Query 4 tags
+vector< unordered_set<int> > personForumTags;
+
+unordered_map<int, string> tagIdToName;
+unordered_map<string, int> tagNameToId;
 unordered_map<int, unordered_set<int>> tagPersons;
 unordered_map<int, unordered_set<int>> personTags;
 unsigned int nverts = 0;
@@ -56,12 +65,80 @@ void readTagNames(string tagNamesFile) {
     int id = atoi(column.c_str());
 
     getline(f, column, '|');
-    tagName[id] = column;
+    tagIdToName[id] = column;
+    tagNameToId[column] = id;
 
     getline(f, column); // Skip to the next line
   }
 
   f.close();
+}
+
+void readPersonForumTags(string personForumsFile, string forumTagsFile) {
+  unordered_map< int, vector<int> > forumTags = readForumTags(forumTagsFile);
+  
+  ifstream f(personForumsFile.c_str());
+  string line;
+  getline(f, line); // skip header
+
+  while(getline(f, line)) {
+    istringstream ss(line); // entire line into stringstream
+    istringstream st;
+
+    unsigned int forumId, personId;
+    string field;
+
+    getline(ss, field, '|');
+
+    st.clear();
+    st.str(field);
+    st >> forumId;
+
+    getline(ss, field, '|');
+
+    st.clear();
+    st.str(field);
+    st >> personId;
+
+    if (personForumTags.size() < personId+1)
+      personForumTags.resize(personId+1);
+
+    vector<int> tags = forumTags[forumId];
+    for (int i = 0; i < tags.size(); i++)
+      personForumTags[personId].insert(tags[i]);
+  }
+}
+
+unordered_map< int, vector<int> > readForumTags(string forumTagsFile) {
+  unordered_map< int, vector<int> > forumTags;
+
+  ifstream f(forumTagsFile.c_str());
+  string line;
+  getline(f, line); // skip header
+
+  while(getline(f, line)) {
+    istringstream ss(line); // entire line into stringstream
+    istringstream st;
+
+    unsigned int forumId, tagId;
+    string field;
+
+    getline(ss, field, '|');
+
+    st.clear();
+    st.str(field);
+    st >> forumId;
+
+    getline(ss, field, '|');
+
+    st.clear();
+    st.str(field);
+    st >> tagId;
+
+    forumTags[forumId].push_back(tagId);
+  }
+
+  return forumTags;
 }
 
 void readCsvToMap(vector< unordered_set<int> >& map,
@@ -459,39 +536,72 @@ void printGraph() {
   }
 }
 
-int shortestPath(int source, int dest, int minWeight) {
-  vector<int> d = vector<int>(nverts, INT_MAX);
-  vector<int> p = vector<int>(nverts, -1);
-  d[source] = 0;
-  p[source] = -1;
+float getClosenessCentrality(int personId, int tagId) {
+  vector<int> shortestDists = shortestPath(personId, -1, tagId);
+  
+  float numReachable = 0;
+  float sumOfShortestDists = 0;
+  for (unsigned int i = 0; i < shortestDists.size(); i++) {
+    if (shortestDists[i] != INT_MAX) {
+      numReachable++;
+      sumOfShortestDists += shortestDists[i];
+    }
+  }
 
-  set<Edge> Q;
-  Q.insert(Edge(d[source], source));
+  if (numReachable == 1 || sumOfShortestDists == 0)
+    return 0.0;
+  else
+    return (numReachable - 1) * (numReachable - 1) / sumOfShortestDists;
+}
+
+bool isPersonMemberOfForumWithTag(int personId, int tagId) {
+  return (personForumTags[personId].count(tagId) > 0);
+  /*vector<int> forums = personForums[personId];
+  for (int i = 0; i < forums.size(); i++)
+    if (forumTags[forums[i]].count(tagId) > 0)
+      return true;
+  return false;*/
+}
+
+vector<int> shortestPath(int source, int minWeight, int tagId) {
+  vector<int> d = vector<int>(nverts, INT_MAX);
+  //vector<int> p = vector<int>(nverts, -1);
+  d[source] = 0;
+  //p[source] = -1;
+
+  queue<int> Q;
+  Q.push(source);
 
   while(!Q.empty()) {
-    Edge e = *Q.begin();
-    Q.erase(Q.begin());
-    int u = e.second;
-    int c = e.first;
+    //Edge e = *Q.front();
+    int u = Q.front();
+    Q.pop();
+    //int u = e.second;
+    //int c = e.first;
     //cout << "Got u: " << u << " c: " << c << endl;
     for (Edge f : graph[u]) {
       int v = f.first;
-      int edgeWeight = 1;
       //cout << "Checking neighbor v: " << v << " comments: " << f.second << endl;
       if (f.second <= minWeight)
         continue;
+      if (tagId > 0 && !isPersonMemberOfForumWithTag(v, tagId))
+        continue;
       //cout << "v: " << v << " edgeWeight: " << f.second << " >= " << minWeight << endl;
-      if (c + edgeWeight < d[v]) {
+      //if (c + edgeWeight < d[v]) {
+      if (d[u] + 1 < d[v]) {
         // If element exists in Q
-        if (d[v] != INT_MAX)
-          Q.erase(Q.find(Edge(edgeWeight, v)));
-        d[v] = c + edgeWeight;
-        p[v] = u;
-        Q.insert(Edge(d[v], v));
+        //if (d[v] != INT_MAX)
+        //  Q.erase(Q.find(Edge(edgeWeight, v)));
+        //d[v] = c + edgeWeight;
+        d[v] = d[u] + 1;
+        //p[v] = u;
+        //Q.insert(Edge(d[v], v));
+        Q.push(v);
       }
     }
   }
 
+  /*
   vector<int> path;
   path.push_back(dest);
   int parent = p[dest];
@@ -502,17 +612,16 @@ int shortestPath(int source, int dest, int minWeight) {
 
   if (d[dest] == INT_MAX) {
     cout << "-1" << endl;
-    //cout << " % path none" << endl;
+    cout << " % path none" << endl;
   } else {
     cout << d[dest] << endl;
-    /*cout << " % path ";
+    cout << " % path ";
     for (int i = path.size() - 1; i > 0; i--)
       cout << path[i] << "-";
     cout << path[0] << " (other shortest paths may exist)" << endl;
-    */
-  }
+  }*/
 
-  return d[dest] == INT_MAX ? -1 : d[dest];
+  return d;
 }
 
 /*
@@ -612,6 +721,10 @@ void constructGraph(string dataDir) {
    for (auto kv : placeNameToId)
     cout << kv.second << "|" << kv.first << endl;
    */
+
+  string personForumsFile = dataDir + "/forum_hasMember_person.csv";
+  string forumTagsFile = dataDir + "/forum_hasTag_tag.csv";
+  readPersonForumTags(personForumsFile, forumTagsFile);
 }
 
 /*
@@ -797,9 +910,23 @@ bool numeric_greater_then_numeric_lesser(const pair< int, pair<int,int> >& lhs,
   }
 }
 
-vector< pair<int,string> > findTopkTags(int k, string date) {
+bool float_greater_then_numeric_lesser(const pair< float, int >& lhs,
+                                       const pair< float, int >& rhs) {
+  if (lhs.first > rhs.first)
+    return true;
+  else if (lhs.first < rhs.first)
+    return false;
+  else {
+    if (lhs.second < rhs.second)
+      return true;
+    else
+      return false;
+  }
+}
+
+vector< pair<int,string> > findTopTags(string date) {
   vector< pair<int,string> > tagRanges;
-  for (auto kv : tagName) {
+  for (auto kv : tagIdToName) {
     int tagId = kv.first;
     string tagName = kv.second;
     int range = findRange(tagId, date);
@@ -811,8 +938,25 @@ vector< pair<int,string> > findTopkTags(int k, string date) {
   return tagRanges;
 }
 
+vector< pair<float, int> > findTopCloseness(int tagId) {
+
+  vector< pair<float, int> > closenessCentralities;
+  
+  for (int personId = 0; personId < nverts; personId++) {
+    if (!isPersonMemberOfForumWithTag(personId, tagId))
+      continue;
+    float closenessCentrality = getClosenessCentrality(personId, tagId);
+    closenessCentralities.push_back(make_pair(closenessCentrality, personId));
+  }
+  
+  sort(closenessCentralities.begin(), closenessCentralities.end(),
+       float_greater_then_numeric_lesser);
+
+  return closenessCentralities;
+}
+
 vector< pair< int, pair<unsigned int, unsigned int> > >
-findTopkPairs(int k, int maxHops, vector<int> placeIds) {
+findTopPairs(int maxHops, vector<int> placeIds) {
 
   //cout << "k=" << k << ", h=" << maxHops << ", p=" << placeId << endl;
 
@@ -904,8 +1048,12 @@ void solveQueries(string queryFile) {
       st >> minWeight;
 
       //cout << source << " " << dest << " " << minWeight << endl;
-      //cout << shortestPath(source, dest, minWeight) << endl;
-      shortestPath(source, dest, minWeight);
+      vector<int> shortestDists = shortestPath(source, minWeight, -1);
+      if (shortestDists[dest] == INT_MAX)
+        cout << "-1" << endl;
+      else
+        cout << shortestDists[dest] << endl;
+      //shortestPath(source, dest, minWeight);
     } else if (queryType.compare("query2") == 0) {
       unsigned int k;
       string date;
@@ -918,17 +1066,17 @@ void solveQueries(string queryFile) {
       getline(f, date, ')');
       date = date.substr(1, string::npos); // remove first space char
 
-      vector< pair<int,string> > topktags = findTopkTags(k, date);
-      if (topktags.size() > 0)
-        cout << topktags[0].second;
-      for (unsigned int i = 1; i < k && i < topktags.size(); i++)
-        cout << " " << topktags[i].second;
+      vector< pair<int,string> > toptags = findTopTags(date);
+      if (toptags.size() > 0)
+        cout << toptags[0].second;
+      for (unsigned int i = 1; i < k && i < toptags.size(); i++)
+        cout << " " << toptags[i].second;
       /*
       cout << " % component sizes ";
-      if (topktags.size() > 0)
-        cout << topktags[0].first;
-      for (unsigned int i = 1; i < k && i < topktags.size(); i++)
-        cout << " " << topktags[i].first;
+      if (toptags.size() > 0)
+        cout << toptags[0].first;
+      for (unsigned int i = 1; i < k && i < toptags.size(); i++)
+        cout << " " << toptags[i].first;
       */
       cout << endl;
     } else if (queryType.compare("query3") == 0) {
@@ -950,20 +1098,48 @@ void solveQueries(string queryFile) {
       p = p.substr(1, string::npos); // remove first space char
 
       vector< pair<int, pair<unsigned int, unsigned int> > >
-        topkpairs = findTopkPairs(k, h, placeNameToId[p]);
+        toppairs = findTopPairs(h, placeNameToId[p]);
 
-      if (topkpairs.size() > 0)
-        cout << topkpairs[0].second.first << "|" << topkpairs[0].second.second;
+      if (toppairs.size() > 0)
+        cout << toppairs[0].second.first << "|" << toppairs[0].second.second;
 
-      for (unsigned int i = 1; i < k && i < topkpairs.size(); i++)
-        cout << " " << topkpairs[i].second.first << "|"
-             << topkpairs[i].second.second;
+      for (unsigned int i = 1; i < k && i < toppairs.size(); i++)
+        cout << " " << toppairs[i].second.first << "|"
+             << toppairs[i].second.second;
 
       /*
       cout << " % common interest counts";
-      for (unsigned int i = 0; i < k && i < topkpairs.size(); i++)
-        cout << " " << topkpairs[i].first;
+      for (unsigned int i = 0; i < k && i < toppairs.size(); i++)
+        cout << " " << toppairs[i].first;
       */
+      cout << endl;
+    } else if (queryType.compare("query4") == 0) {
+      unsigned int k;
+      string tagName;
+
+      getline(f, field, ',');
+      st.clear();
+      st.str(field);
+      st >> k;
+
+      getline(f, tagName, ')');
+      tagName = tagName.substr(1, string::npos); // remove first space char
+      int tagId = tagNameToId[tagName];
+
+      vector< pair<float, int> > topcentral = findTopCloseness(tagId);
+      if (topcentral.size() > 0)
+        cout << topcentral[0].second;
+      for (unsigned int i = 1; i < k && i < topcentral.size(); i++)
+        cout << " " << topcentral[i].second;
+
+      /*
+      cout << " % centrality values ";
+      if (topcentral.size() > 0)
+        cout << topcentral[0].first;
+      for (unsigned int i = 1; i < k && i < topcentral.size(); i++)
+        cout << " " << topcentral[i].first;
+      */
+
       cout << endl;
     } else {
       //cout << "Unknown query type: " << queryType << endl;
