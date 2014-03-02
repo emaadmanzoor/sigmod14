@@ -501,12 +501,15 @@ int shortestPath(int source, int dest, int minWeight) {
   }
 
   if (d[dest] == INT_MAX) {
-    cout << "-1 % path none" << endl;
+    cout << "-1" << endl;
+    //cout << " % path none" << endl;
   } else {
-    cout << d[dest] << " % path ";
+    cout << d[dest] << endl;
+    /*cout << " % path ";
     for (int i = path.size() - 1; i > 0; i--)
       cout << path[i] << "-";
     cout << path[0] << " (other shortest paths may exist)" << endl;
+    */
   }
 
   return d[dest] == INT_MAX ? -1 : d[dest];
@@ -920,11 +923,13 @@ void solveQueries(string queryFile) {
         cout << topktags[0].second;
       for (unsigned int i = 1; i < k && i < topktags.size(); i++)
         cout << " " << topktags[i].second;
+      /*
       cout << " % component sizes ";
       if (topktags.size() > 0)
         cout << topktags[0].first;
       for (unsigned int i = 1; i < k && i < topktags.size(); i++)
         cout << " " << topktags[i].first;
+      */
       cout << endl;
     } else if (queryType.compare("query3") == 0) {
       unsigned int k;
@@ -954,10 +959,11 @@ void solveQueries(string queryFile) {
         cout << " " << topkpairs[i].second.first << "|"
              << topkpairs[i].second.second;
 
+      /*
       cout << " % common interest counts";
       for (unsigned int i = 0; i < k && i < topkpairs.size(); i++)
         cout << " " << topkpairs[i].first;
-
+      */
       cout << endl;
     } else {
       //cout << "Unknown query type: " << queryType << endl;

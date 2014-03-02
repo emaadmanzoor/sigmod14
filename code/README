@@ -1,5 +1,17 @@
-Run from within this directory:
+(1) Team Name:
 
-g++ -std=c++11 query1and2.cpp -o query1and2
-./query1and2 ../data/outputDir-1k/ ../data/1k-queries1.txt
-./query1and2 ../data/outputDir-1k/ ../data/1k-queries2.txt
+(2) Members
+ - member 1's name, email, institution, department, and degree program
+ - member 2's name, email, institution, department, and degree program
+ - member 3's name, email, institution, department, and degree program
+ ...
+
+(3) Supervisor Name: (if any)
+
+(4) Summary of Techniques
+ - Query Type 1:
+ - Query Type 2:
+ - Query Type 3:
+ - Query Type 4:
+
+(5) Third Party Code:
