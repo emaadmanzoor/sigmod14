@@ -438,7 +438,7 @@ void createEdges(string personKnowsFile) {
 }
 
 void incrementEdgeWeight(unsigned int u, unsigned int v) {
-  for (vector<pair<unsigned int,int>>::iterator e = graph[u].begin();
+  for (vector<Edge>::iterator e = graph[u].begin();
        e != graph[u].end(); e++) {
     if (e->first == v) {
       e->second++;
@@ -503,7 +503,7 @@ void computeEdgeWeights(string commentCreatorFile, string commentReplyFile) {
   f.close();
 
   for (unsigned int u = 0; u < nverts; u++) {
-    for (vector<pair<unsigned int,int>>::iterator e = graph[u].begin();
+    for (vector<Edge>::iterator e = graph[u].begin();
          e != graph[u].end(); e++) {
       unsigned int v = e->first;
       int minWeight = e->second;
@@ -530,8 +530,9 @@ void printGraph() {
     cout << endl;
   }*/
   for (unsigned int u = 0; u < nverts; u++) {
-    for (Edge e : graph[u]) {
-      cout << u << "|" << e.first << endl;
+    for (vector<Edge>::iterator e = graph[u].begin();
+         e != graph[u].end(); e++) {
+      cout << u << "|" << e->first << endl;
     }
   }
 }
@@ -579,10 +580,11 @@ vector<int> shortestPath(int source, int minWeight, int tagId) {
     //int u = e.second;
     //int c = e.first;
     //cout << "Got u: " << u << " c: " << c << endl;
-    for (Edge f : graph[u]) {
-      int v = f.first;
+    for (vector<Edge>::iterator f = graph[u].begin();
+         f != graph[u].end(); f++) {
+      int v = f->first;
       //cout << "Checking neighbor v: " << v << " comments: " << f.second << endl;
-      if (f.second <= minWeight)
+      if (f->second <= minWeight)
         continue;
       if (tagId > 0 && !isPersonMemberOfForumWithTag(v, tagId))
         continue;
@@ -846,8 +848,9 @@ int findRange(int tagId, string date) {
       currentSize++;
       if (tagId == -1)
         cout << "Visited\t" << u << "\tsize\t" << currentSize << endl;
-      for (Edge e : graph[u]) {
-        unsigned int v = e.first;
+      for (vector<Edge>::iterator e = graph[u].begin();
+           e != graph[u].end(); e++) {
+        unsigned int v = e->first;
         if (!visited[v] &&
             isValidPerson(v, tagId, date)) {
           if (tagId == -1)
@@ -926,9 +929,10 @@ bool float_greater_then_numeric_lesser(const pair< float, int >& lhs,
 
 vector< pair<int,string> > findTopTags(string date) {
   vector< pair<int,string> > tagRanges;
-  for (auto kv : tagIdToName) {
-    int tagId = kv.first;
-    string tagName = kv.second;
+  for (unordered_map<int, string>::iterator it = tagIdToName.begin();
+       it != tagIdToName.end(); ++it) {
+    int tagId = it->first;
+    string tagName = it->second;
     int range = findRange(tagId, date);
     tagRanges.push_back(make_pair(range, tagName));
   }
@@ -1000,8 +1004,9 @@ findTopPairs(int maxHops, vector<int> placeIds) {
       visited[u] = true;
 
       //cout << "\tVisiting " << u << " hops=" << numHops[u] << endl;
-      for (Edge e : graph[u]) {
-        unsigned int v = e.first;
+      for (vector<Edge>::iterator e = graph[u].begin();
+           e != graph[u].end(); e++) {
+        unsigned int v = e->first;
 
         if (!visited[v]) { // TODO: Verify
           s.push(v);
@@ -1161,3 +1166,4 @@ int main(int argc, char* argv[]) {
   string queryFile = argv[2];
   solveQueries(queryFile);
 }
+

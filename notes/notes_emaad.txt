@@ -67,6 +67,14 @@ Feb 13
   - Query 2 requires ties to be broken by "increasing" lexicographical order, needs custom comparator to sort
   - Completed naive query 2 implementation, verified with test output
 
-TODO:
-  - Work with Tariq to complete Q3 and Q4
-  - Work with Tris to find algorithmic improvements to Q1 and Q2
+Mar 3
+  - Their ELF interpreter is in /lib64/ld-linux-x86-64.so.2
+    Compile by statically linking in C++/glibc:
+g++ --std=c++11 -static -static-libgcc -static-libstdc++ -Wl,-dynamic-linker=/lib64/ld-linux-x86-64.so.2 src/queries.cpp -o queries 2>&1
+    And we have our first submission up.
+
+  - Vagrant (make sure you have Virtualbox working)
+    http://docs.vagrantup.com/v2/getting-started/index.html
+    sudo modprobe vboxdrv vboxnetflt
+    vagrant init sigmodbox https://github.com/2creatives/vagrant-centos/releases/download/v6.5.1/centos65-x86_64-20131205.box
+    vagrant up

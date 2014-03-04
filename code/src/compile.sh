@@ -1,1 +1,1 @@
-g++ --std=c++11 queries.cpp -o queries
+g++ --std=c++0x src/queries.cpp -o queries
