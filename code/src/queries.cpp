@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <stack>
 #include <queue>
+#include <cstdio>
 
 using namespace std;
 
@@ -1024,134 +1025,88 @@ findTopPairs(int maxHops, vector<int> placeIds) {
   return candidates;
 }
 
-void solveQueries(string queryFile) {
-  ifstream f(queryFile);
+void solveQuery1(int source, int dest, int minWeight) {
+  vector<int> shortestDists = shortestPath(source, minWeight, -1);
+  if (shortestDists[dest] == INT_MAX)
+    cout << "-1" << endl;
+  else
+    cout << shortestDists[dest] << endl;
+}
 
-  string line;
-  while(getline(f, line, '(')) {
-    string field;
-    istringstream st;
+void solveQuery2(int k, char date[11]) {
+  vector< pair<int,string> > toptags = findTopTags(string(date));
 
-    string queryType = line;
+  if (toptags.size() > 0)
+    cout << toptags[0].second;
+  for (unsigned int i = 1; i < k && i < toptags.size(); i++)
+    cout << " " << toptags[i].second;
+  cout << endl;
+}
 
-    if (queryType.compare("query1") == 0) {
-      int source, dest, minWeight;
+void solveQuery3(int k, int h, char placeName[100]) {
+  vector< pair<int, pair<unsigned int, unsigned int> > >
+    toppairs = findTopPairs(h, placeNameToId[string(placeName)]);
+  if (toppairs.size() > 0)
+    cout << toppairs[0].second.first << "|" << toppairs[0].second.second;
+  for (unsigned int i = 1; i < k && i < toppairs.size(); i++)
+    cout << " " << toppairs[i].second.first << "|"
+         << toppairs[i].second.second;
+  cout << endl;
+}
 
-      getline(f, field, ',');
-      st.clear();
-      st.str(field);
-      st >> source;
-      
-      getline(f, field, ',');
-      st.clear();
-      st.str(field);
-      st >> dest;
-        
-      getline(f, field, ')');
-      st.clear();
-      st.str(field);
-      st >> minWeight;
+void solveQuery4(int k, char tagName[120]) {
+  int tagId = tagNameToId[string(tagName)];
 
-      //cout << source << " " << dest << " " << minWeight << endl;
-      vector<int> shortestDists = shortestPath(source, minWeight, -1);
-      if (shortestDists[dest] == INT_MAX)
-        cout << "-1" << endl;
-      else
-        cout << shortestDists[dest] << endl;
-      //shortestPath(source, dest, minWeight);
-    } else if (queryType.compare("query2") == 0) {
-      unsigned int k;
-      string date;
+  vector< pair<float, int> > topcentral = findTopCloseness(tagId);
+  if (topcentral.size() > 0)
+    cout << topcentral[0].second;
+  for (unsigned int i = 1; i < k && i < topcentral.size(); i++)
+    cout << " " << topcentral[i].second;
+  cout << endl;
+}
 
-      getline(f, field, ',');
-      st.clear();
-      st.str(field);
-      st >> k;
+void solveQueries(string queryFilename) {
+  FILE* queryFile = fopen(queryFilename.c_str(), "r");
 
-      getline(f, date, ')');
-      date = date.substr(1, string::npos); // remove first space char
+  int queryType;
+  while(fscanf(queryFile, "query%d", &queryType) != EOF) {
+    switch (queryType) {
+      case 1: {
+        // query1(100, 100, -1)
+        int source, dest, minWeight;
+        fscanf(queryFile, "(%d, %d, %d)\n", &source, &dest, &minWeight);
+        solveQuery1(source, dest, minWeight);
+        break;
+      }
 
-      vector< pair<int,string> > toptags = findTopTags(date);
-      if (toptags.size() > 0)
-        cout << toptags[0].second;
-      for (unsigned int i = 1; i < k && i < toptags.size(); i++)
-        cout << " " << toptags[i].second;
-      /*
-      cout << " % component sizes ";
-      if (toptags.size() > 0)
-        cout << toptags[0].first;
-      for (unsigned int i = 1; i < k && i < toptags.size(); i++)
-        cout << " " << toptags[i].first;
-      */
-      cout << endl;
-    } else if (queryType.compare("query3") == 0) {
-      unsigned int k;
-      int h;
-      string p;
+      case 2: {
+        // query2(3, 1980-02-01)
+        int k;
+        char date[11]; // 10 chars for data, 1 for NULL
+        fscanf(queryFile, "(%d, %10s)\n", &k, date);
+        solveQuery2(k, date);
+        break;
+      }
 
-      getline(f, field, ',');
-      st.clear();
-      st.str(field);
-      st >> k;
+      case 3: {
+        // query3(3, 2, Democratic_Republic_Of_Congo)
+        int k, h;
+        char placeName[100] = {0}; // 2 * longest string in place dictionaries in LDBC
+        fscanf(queryFile, "(%d, %d, %[^)])\n", &k, &h, placeName)
+        solveQuery3(k, h, placeName);
+        break;
+      }
 
-      getline(f, field, ',');
-      st.clear();
-      st.str(field);
-      st >> h;
-
-      getline(f, p, ')');
-      p = p.substr(1, string::npos); // remove first space char
-
-      vector< pair<int, pair<unsigned int, unsigned int> > >
-        toppairs = findTopPairs(h, placeNameToId[p]);
-
-      if (toppairs.size() > 0)
-        cout << toppairs[0].second.first << "|" << toppairs[0].second.second;
-
-      for (unsigned int i = 1; i < k && i < toppairs.size(); i++)
-        cout << " " << toppairs[i].second.first << "|"
-             << toppairs[i].second.second;
-
-      /*
-      cout << " % common interest counts";
-      for (unsigned int i = 0; i < k && i < toppairs.size(); i++)
-        cout << " " << toppairs[i].first;
-      */
-      cout << endl;
-    } else if (queryType.compare("query4") == 0) {
-      unsigned int k;
-      string tagName;
-
-      getline(f, field, ',');
-      st.clear();
-      st.str(field);
-      st >> k;
-
-      getline(f, tagName, ')');
-      tagName = tagName.substr(1, string::npos); // remove first space char
-      int tagId = tagNameToId[tagName];
-
-      vector< pair<float, int> > topcentral = findTopCloseness(tagId);
-      if (topcentral.size() > 0)
-        cout << topcentral[0].second;
-      for (unsigned int i = 1; i < k && i < topcentral.size(); i++)
-        cout << " " << topcentral[i].second;
-
-      /*
-      cout << " % centrality values ";
-      if (topcentral.size() > 0)
-        cout << topcentral[0].first;
-      for (unsigned int i = 1; i < k && i < topcentral.size(); i++)
-        cout << " " << topcentral[i].first;
-      */
-
-      cout << endl;
-    } else {
-      //cout << "Unknown query type: " << queryType << endl;
-    }
-
-    getline(f, line);
-  }
+      case 4: {
+        //query4(3, Bill_Clinton)
+        int k;
+        char tagName[120] = {0}; // 2 * longest string in tag dictionaries in LDBC
+        fscanf(queryFile, "(%d, %[^)])\n", &k, tagName);
+        solveQuery4(k, tagName);
+        break;
+      }
+    } // switch
+  } // while
 }
 
 int main(int argc, char* argv[]) {
@@ -1166,4 +1121,3 @@ int main(int argc, char* argv[]) {
   string queryFile = argv[2];
   solveQueries(queryFile);
 }
-
