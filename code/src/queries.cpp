@@ -1005,7 +1005,7 @@ void solveQuery2(int k, char date[11]) {
   cout << endl;
 }
 
-void solveQuery3(int k, int h, char placeName[100]) {
+void solveQuery3(int k, int h, char* placeName) {
   vector< pair<int, pair<unsigned int, unsigned int> > >
     toppairs = findTopPairs(h, placeNameToId[string(placeName)]);
   if (toppairs.size() > 0)
@@ -1016,9 +1016,7 @@ void solveQuery3(int k, int h, char placeName[100]) {
   cout << endl;
 }
 
-void solveQuery4(int k, char tagName[120]) {
-  int tagId = tagNameToId[string(tagName)];
-
+void solveQuery4(int k, int tagId) {
   vector< pair<float, int> > topcentral = findTopCloseness(tagId);
   if (topcentral.size() > 0)
     cout << topcentral[0].second;
@@ -1064,7 +1062,8 @@ void solveQueries(string queryFilename) {
         int k;
         char tagName[120] = {0}; // 2 * longest string in tag dictionaries in LDBC
         fscanf(queryFile, "(%d, %[^)])\n", &k, tagName);
-        solveQuery4(k, tagName);
+        int tagId = tagNameToId[string(tagName)];
+        solveQuery4(k, tagId);
         break;
       }
     } // switch
