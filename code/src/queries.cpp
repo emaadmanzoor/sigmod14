@@ -12,6 +12,7 @@
 #include <stack>
 #include <queue>
 #include <cstdio>
+#include <time.h>
 
 using namespace std;
 
@@ -21,17 +22,8 @@ using namespace std;
  *  queryFile
  */
 
-/*typedef struct Person {
-  int id;
-  char birthday[10];
-
-  bool operator<(const Person& p) const {
-    return id < p.id;
-  }
-} Person;*/
-
 // Function prototypes
-vector<int> shortestPath(int source, int minWeight, int tagId);
+vector<int> shortestPath(int source, int minWeight, int tagId, vector<bool>& isValid);
 unordered_map< int, vector<int> > readForumTags(string forumTagsFile);
 
 // Graph
@@ -523,23 +515,8 @@ void computeEdgeWeights(string commentCreatorFile, string commentReplyFile) {
   }
 }
 
-void printGraph() {
-  /*for (auto u : graph) {
-    cout << kv.first << ": ";
-    for (auto v : kv.second)
-      cout << "(v:" << v.first << ", w: " << v.second << ") ";
-    cout << endl;
-  }*/
-  for (unsigned int u = 0; u < nverts; u++) {
-    for (vector<Edge>::iterator e = graph[u].begin();
-         e != graph[u].end(); e++) {
-      cout << u << "|" << e->first << endl;
-    }
-  }
-}
-
-float getClosenessCentrality(int personId, int tagId) {
-  vector<int> shortestDists = shortestPath(personId, -1, tagId);
+float getClosenessCentrality(int personId, int tagId, vector<bool>& isValid) {
+  vector<int> shortestDists = shortestPath(personId, -1, tagId, isValid);
   
   float numReachable = 0;
   float sumOfShortestDists = 0;
@@ -558,108 +535,35 @@ float getClosenessCentrality(int personId, int tagId) {
 
 bool isPersonMemberOfForumWithTag(int personId, int tagId) {
   return (personForumTags[personId].count(tagId) > 0);
-  /*vector<int> forums = personForums[personId];
-  for (int i = 0; i < forums.size(); i++)
-    if (forumTags[forums[i]].count(tagId) > 0)
-      return true;
-  return false;*/
 }
 
-vector<int> shortestPath(int source, int minWeight, int tagId) {
+vector<int> shortestPath(int source, int minWeight, int tagId,
+                         vector<bool>& isValid) {
   vector<int> d = vector<int>(nverts, INT_MAX);
-  //vector<int> p = vector<int>(nverts, -1);
   d[source] = 0;
-  //p[source] = -1;
 
   queue<int> Q;
   Q.push(source);
 
   while(!Q.empty()) {
-    //Edge e = *Q.front();
     int u = Q.front();
     Q.pop();
-    //int u = e.second;
-    //int c = e.first;
-    //cout << "Got u: " << u << " c: " << c << endl;
     for (vector<Edge>::iterator f = graph[u].begin();
          f != graph[u].end(); f++) {
       int v = f->first;
-      //cout << "Checking neighbor v: " << v << " comments: " << f.second << endl;
       if (f->second <= minWeight)
         continue;
-      if (tagId > 0 && !isPersonMemberOfForumWithTag(v, tagId))
+      if (tagId > 0 && !isValid[v])
         continue;
-      //cout << "v: " << v << " edgeWeight: " << f.second << " >= " << minWeight << endl;
-      //if (c + edgeWeight < d[v]) {
       if (d[u] + 1 < d[v]) {
-        // If element exists in Q
-        //if (d[v] != INT_MAX)
-        //  Q.erase(Q.find(Edge(edgeWeight, v)));
-        //d[v] = c + edgeWeight;
         d[v] = d[u] + 1;
-        //p[v] = u;
-        //Q.insert(Edge(d[v], v));
         Q.push(v);
       }
     }
   }
 
-  /*
-  vector<int> path;
-  path.push_back(dest);
-  int parent = p[dest];
-  while (parent != -1) {
-    path.push_back(parent);
-    parent = p[parent];
-  }
-
-  if (d[dest] == INT_MAX) {
-    cout << "-1" << endl;
-    cout << " % path none" << endl;
-  } else {
-    cout << d[dest] << endl;
-    cout << " % path ";
-    for (int i = path.size() - 1; i > 0; i--)
-      cout << path[i] << "-";
-    cout << path[0] << " (other shortest paths may exist)" << endl;
-  }*/
-
   return d;
 }
-
-/*
-bool isEdge(int u, int v) {
-  for (Edge e : graph[u])
-    if (e.first == v)
-      return true;
-  return false;
-}
-
-void pruneUnidirectionalEdges() {
-  for (auto kv : graph) {
-    unsigned int u = kv.first;
-    //cout << "u: " << u << endl;
-
-    vector<Edge> uneighbors;
-    for (Edge e : kv.second) {
-      if (isEdge(e.first, u)) {
-        cout << "v: " << e.first << endl;
-        cout << "\t";
-        for (auto p : graph[e.first])
-          cout << p.first << " ";
-        cout << endl;
-        uneighbors.push_back(e);
-      } else {
-        cout << "No edge back from " << e.first << " to " << u << endl;
-      }
-    }
-    
-    if (uneighbors.empty())
-      graph.erase(u);
-    else
-      graph[u] = uneighbors;
-  } 
-}*/
 
 void constructGraph(string dataDir) {
   string personFile = dataDir + "/person.csv";
@@ -814,48 +718,42 @@ bool isValidPersonLocation(int personId, vector<int> placeIds) {
 }
 
 int findRange(int tagId, string date) {
-  // Find the largest connected component in the graph
-  // of people who know each other such that:
-  //  People have birthday >= date
-  //  People have interest tagId
   vector<bool> visited = vector<bool>(nverts);
   for (unsigned int i = 0; i < nverts; i++)
     visited[i] = false;
 
+  vector<bool> isValid = vector<bool>(nverts, false);
+  for (int i = 0; i < nverts; i++)
+    if (isValidPerson(i, tagId, date))
+      isValid[i] = true;
+
   int maxSize = 0;
 
-  // Start a DFS from each node, if it is unvisited
-  // and valid. Calculate the size of the CC and
-  // update maxCc
-  
   for (unsigned int i = 0; i < nverts; i++) {
     if (visited[i] ||
-        !isValidPerson(i, tagId, date))
+        !isValid[i])
       continue;
     
     int currentSize = 0;
 
     stack<unsigned int> s;
     s.push(i);
-    if (tagId == -1)
-      cout << "Starting\t" << i << endl;
 
     while(!s.empty()) {
       unsigned int u = s.top();
       s.pop(); 
+
       if (visited[u])
         continue;
+
       visited[u] = true;
       currentSize++;
-      if (tagId == -1)
-        cout << "Visited\t" << u << "\tsize\t" << currentSize << endl;
+
       for (vector<Edge>::iterator e = graph[u].begin();
            e != graph[u].end(); e++) {
         unsigned int v = e->first;
         if (!visited[v] &&
-            isValidPerson(v, tagId, date)) {
-          if (tagId == -1)
-            cout << "Pushing\t" << v << endl;
+            isValid[v]) {
           s.push(v);
         }
       }
@@ -886,19 +784,38 @@ int getNumberOfCommonTags(int personId1, int personId2) {
   return numberOfCommonTags;
 }
 
-bool numeric_greater_then_lexico_lesser(const pair<int,string>& lhs,
-                                        const pair<int,string>& rhs) {
-  if (lhs.first > rhs.first)
-    return true;
-  else if (lhs.first < rhs.first)
-    return false;
-  else {
-    if (lhs.second < rhs.second)
+
+struct numeric_lesser_then_lexico_greater {
+  bool operator() (const pair<int,string>& lhs,
+                   const pair<int,string>& rhs) {
+    if (lhs.first < rhs.first)
       return true;
-    else
+    else if (lhs.first > rhs.first)
       return false;
+    else {
+      if (lhs.second > rhs.second)
+        return true;
+      else
+        return false;
+    }
   }
-}
+};
+
+struct numeric_greater_then_lexico_lesser {
+  bool operator() (const pair<int,string>& lhs,
+                   const pair<int,string>& rhs) {
+    if (lhs.first > rhs.first)
+      return true;
+    else if (lhs.first < rhs.first)
+      return false;
+    else {
+      if (lhs.second < rhs.second)
+        return true;
+      else
+        return false;
+    }
+  }
+};
 
 bool numeric_greater_then_numeric_lesser(const pair< int, pair<int,int> >& lhs,
                                          const pair< int, pair<int,int> >& rhs) {
@@ -928,17 +845,42 @@ bool float_greater_then_numeric_lesser(const pair< float, int >& lhs,
   }
 }
 
-vector< pair<int,string> > findTopTags(string date) {
-  vector< pair<int,string> > tagRanges;
+priority_queue< pair<int,string>, vector< pair<int, string> >,
+  numeric_greater_then_lexico_lesser > findTopTags(string date, int k) {
+
+  priority_queue< pair<int, string>, vector< pair<int, string> >,
+    numeric_greater_then_lexico_lesser > tagRanges;
+  
   for (unordered_map<int, string>::iterator it = tagIdToName.begin();
        it != tagIdToName.end(); ++it) {
     int tagId = it->first;
     string tagName = it->second;
-    int range = findRange(tagId, date);
-    tagRanges.push_back(make_pair(range, tagName));
+
+    int range;
+    if (tagRanges.size() >= k) {
+      
+      int currentMin = tagRanges.top().first;
+      string currentMinTag = tagRanges.top().second;
+      int nodesForTag = tagPersons[tagId].size();
+
+      if (nodesForTag >= currentMin) {
+          range = findRange(tagId, date);
+
+          if (range > currentMin) {
+            tagRanges.pop();
+            tagRanges.push(make_pair(range, tagName));
+          } else if (range == currentMin) {
+            if (tagName < currentMinTag) {
+              tagRanges.pop();
+              tagRanges.push(make_pair(range, tagName));
+            }
+          }
+      }
+    } else {
+      range = findRange(tagId, date);
+      tagRanges.push(make_pair(range, tagName));
+    }
   }
-  sort(tagRanges.begin(), tagRanges.end(),
-       numeric_greater_then_lexico_lesser);
 
   return tagRanges;
 }
@@ -946,11 +888,17 @@ vector< pair<int,string> > findTopTags(string date) {
 vector< pair<float, int> > findTopCloseness(int tagId) {
 
   vector< pair<float, int> > closenessCentralities;
+
+  vector<bool> isValid = vector<bool>(nverts, false);
+  for (int i = 0; i < nverts; i++)
+    if (isPersonMemberOfForumWithTag(i, tagId))
+      isValid[i] = true;
   
   for (int personId = 0; personId < nverts; personId++) {
-    if (!isPersonMemberOfForumWithTag(personId, tagId))
+    if (!isValid[personId])
       continue;
-    float closenessCentrality = getClosenessCentrality(personId, tagId);
+    float closenessCentrality = getClosenessCentrality(personId, tagId,
+                                                       isValid);
     closenessCentralities.push_back(make_pair(closenessCentrality, personId));
   }
   
@@ -963,9 +911,14 @@ vector< pair<float, int> > findTopCloseness(int tagId) {
 vector< pair< int, pair<unsigned int, unsigned int> > >
 findTopPairs(int maxHops, vector<int> placeIds) {
 
-  //cout << "k=" << k << ", h=" << maxHops << ", p=" << placeId << endl;
-
   vector< pair< int, pair<unsigned int, unsigned int> > > candidates;
+
+  vector<bool> isValid = vector<bool>(nverts, false);
+  for (int i = 0; i < nverts; i++) {
+    if (isValidPersonLocation(i, placeIds)) {
+      isValid[i] = true;
+    }
+  }
 
   for (unsigned int i = 0; i < nverts; i++) {
     // Start a h-hop DFS from node i
@@ -989,14 +942,12 @@ findTopPairs(int maxHops, vector<int> placeIds) {
         continue;
 
       if (!isCandidate[u] && u > i &&
-          isValidPersonLocation(u, placeIds)) { // TODO: Verify
+          isValid[u]) { 
 
         int numberOfCommonTags = getNumberOfCommonTags(i, u);
         candidates.push_back(make_pair(numberOfCommonTags,
                                        make_pair(i, u)));
         isCandidate[u] = true;
-        //cout << "\t\tAdded candidate " << i << "|" << u << " common=" <<
-        //     numberOfCommonTags << endl;
       }
 
       if (numHops[u] + 1 > maxHops)
@@ -1004,16 +955,14 @@ findTopPairs(int maxHops, vector<int> placeIds) {
 
       visited[u] = true;
 
-      //cout << "\tVisiting " << u << " hops=" << numHops[u] << endl;
       for (vector<Edge>::iterator e = graph[u].begin();
            e != graph[u].end(); e++) {
         unsigned int v = e->first;
 
-        if (!visited[v]) { // TODO: Verify
+        if (!visited[v]) {
           s.push(v);
           if (numHops[u] + 1 < numHops[v])
             numHops[v] = numHops[u] + 1;
-          //cout << "\t\tAdded neighbor " << v << endl;
         }
       }
     }
@@ -1026,7 +975,8 @@ findTopPairs(int maxHops, vector<int> placeIds) {
 }
 
 void solveQuery1(int source, int dest, int minWeight) {
-  vector<int> shortestDists = shortestPath(source, minWeight, -1);
+  vector<bool> isValid;
+  vector<int> shortestDists = shortestPath(source, minWeight, -1, isValid);
   if (shortestDists[dest] == INT_MAX)
     cout << "-1" << endl;
   else
@@ -1034,12 +984,24 @@ void solveQuery1(int source, int dest, int minWeight) {
 }
 
 void solveQuery2(int k, char date[11]) {
-  vector< pair<int,string> > toptags = findTopTags(string(date));
+  priority_queue< pair<int,string>, vector< pair<int, string> >,
+   numeric_greater_then_lexico_lesser > toptags = findTopTags(string(date), k);
 
-  if (toptags.size() > 0)
-    cout << toptags[0].second;
-  for (unsigned int i = 1; i < k && i < toptags.size(); i++)
-    cout << " " << toptags[i].second;
+  vector<string> toprint;
+
+  while (toptags.size() > 0) {
+    toprint.push_back(toptags.top().second);
+    toptags.pop();
+  }
+
+  int numtags = toprint.size();
+  if (numtags > 0) {
+    cout << toprint[numtags - 1];
+    for (int i = numtags - 2; i >= numtags - k; i--) {
+      cout << " " << toprint[i];
+    }
+  }
+
   cout << endl;
 }
 
@@ -1092,7 +1054,7 @@ void solveQueries(string queryFilename) {
         // query3(3, 2, Democratic_Republic_Of_Congo)
         int k, h;
         char placeName[100] = {0}; // 2 * longest string in place dictionaries in LDBC
-        fscanf(queryFile, "(%d, %d, %[^)])\n", &k, &h, placeName)
+        fscanf(queryFile, "(%d, %d, %[^)])\n", &k, &h, placeName);
         solveQuery3(k, h, placeName);
         break;
       }
