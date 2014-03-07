@@ -43,7 +43,8 @@ vector< unordered_set<int> > personForumTags;
 
 unordered_map<int, string> tagIdToName;
 unordered_map<string, int> tagNameToId;
-unordered_map<int, unordered_set<int>> tagPersons;
+unordered_map<int, vector<int>> tagPersons;
+vector<int> sortedTagIds;
 unordered_map<int, unordered_set<int>> personTags;
 unsigned int nverts = 0;
 unsigned int nedges = 0;
@@ -395,11 +396,30 @@ void assignPersonTags(string personTagsFile) {
     st.str(field);
     st >> tagId;
 
-    tagPersons[tagId].insert(personId);
+    tagPersons[tagId].push_back(personId);
     personTags[personId].insert(tagId);
   }
 
   f.close();
+
+  vector< pair<int, int> > tagIdAndNumPersons
+    = vector< pair<int, int> >(tagPersons.size());
+
+  for (unordered_map< int, vector<int> >::iterator
+       it = tagPersons.begin();
+       it != tagPersons.end(); it++) {
+    int tagId = it->first;
+    int numPersons = (it->second).size();
+    tagIdAndNumPersons.push_back(make_pair(numPersons, tagId));
+  }
+
+  sort(tagIdAndNumPersons.begin(), tagIdAndNumPersons.end(),
+       greater< pair<int, int> >());
+
+  sortedTagIds = vector<int>(tagIdAndNumPersons.size(), -1);
+  for (int i = 0; i < tagIdAndNumPersons.size(); i++) {
+    sortedTagIds[i] = tagIdAndNumPersons[i].second;
+  }
 }
 
 void createEdges(string personKnowsFile) {
@@ -638,7 +658,7 @@ void constructGraph(string dataDir) {
  * Verified that lexicographic birthday compare
  * works as required, and person-has-tag check.
  */
-bool isValidPerson(int personId, int tagId, string date) {
+/*bool isValidPerson(int personId, int tagId, string date) {
   string personBirthday = string(birthday[personId].begin(),
                                  birthday[personId].end());
   if (personBirthday >= date &&
@@ -647,7 +667,7 @@ bool isValidPerson(int personId, int tagId, string date) {
   } else {
     return false;
   }
-}
+}*/
 
 /*
  * For query3(k, h, p), p is a location (city, country, continent)
@@ -717,21 +737,19 @@ bool isValidPersonLocation(int personId, vector<int> placeIds) {
   return false;
 }
 
-int findRange(int tagId, string date) {
-  vector<bool> visited = vector<bool>(nverts);
-  for (unsigned int i = 0; i < nverts; i++)
-    visited[i] = false;
+int findRange(int tagId, string date, vector<int> validNodesForTag) {
+  vector<bool> visited = vector<bool>(nverts, true);
 
-  vector<bool> isValid = vector<bool>(nverts, false);
-  for (int i = 0; i < nverts; i++)
-    if (isValidPerson(i, tagId, date))
-      isValid[i] = true;
+  for (int i = 0; i < validNodesForTag.size(); i++) {
+    int validPersonId = validNodesForTag[i];
+    visited[validPersonId] = false;
+  }
 
   int maxSize = 0;
 
-  for (unsigned int i = 0; i < nverts; i++) {
-    if (visited[i] ||
-        !isValid[i])
+  for (unsigned int x = 0; x < validNodesForTag.size(); x++) {
+    int i = validNodesForTag[x];
+    if (visited[i])
       continue;
     
     int currentSize = 0;
@@ -752,8 +770,7 @@ int findRange(int tagId, string date) {
       for (vector<Edge>::iterator e = graph[u].begin();
            e != graph[u].end(); e++) {
         unsigned int v = e->first;
-        if (!visited[v] &&
-            isValid[v]) {
+        if (!visited[v]) {
           s.push(v);
         }
       }
@@ -850,35 +867,56 @@ priority_queue< pair<int,string>, vector< pair<int, string> >,
 
   priority_queue< pair<int, string>, vector< pair<int, string> >,
     numeric_greater_then_lexico_lesser > tagRanges;
-  
-  for (unordered_map<int, string>::iterator it = tagIdToName.begin();
-       it != tagIdToName.end(); ++it) {
-    int tagId = it->first;
-    string tagName = it->second;
 
-    int range;
-    if (tagRanges.size() >= k) {
-      
-      int currentMin = tagRanges.top().first;
-      string currentMinTag = tagRanges.top().second;
-      int nodesForTag = tagPersons[tagId].size();
+  for (int i = 0; i < k; i++) {
+    int tagId = sortedTagIds[i];
+    string tagName = tagIdToName[tagId];
 
-      if (nodesForTag >= currentMin) {
-          range = findRange(tagId, date);
+    vector<int> validNodesForTag;
+    for (int j = 0; j < tagPersons[tagId].size(); j++) {
+      int personId = tagPersons[tagId][j];
+      string personBirthday = string(birthday[personId].begin(),
+                                     birthday[personId].end());
+      if (personBirthday >= date)
+        validNodesForTag.push_back(personId);
+    }
 
-          if (range > currentMin) {
-            tagRanges.pop();
-            tagRanges.push(make_pair(range, tagName));
-          } else if (range == currentMin) {
-            if (tagName < currentMinTag) {
-              tagRanges.pop();
-              tagRanges.push(make_pair(range, tagName));
-            }
-          }
-      }
-    } else {
-      range = findRange(tagId, date);
+    int range = findRange(tagId, date, validNodesForTag);
+    tagRanges.push(make_pair(range, tagName));
+  }
+
+  for (int i = k; i < sortedTagIds.size(); i++) {
+    int tagId = sortedTagIds[i];
+    string tagName = tagIdToName[tagId];
+
+    int currentMin = tagRanges.top().first;
+    string currentMinTag = tagRanges.top().second;
+
+    if (tagPersons[tagId].size() < currentMin)
+      break;
+
+    vector<int> validNodesForTag;
+    for (int j = 0; j < tagPersons[tagId].size(); j++) {
+      int personId = tagPersons[tagId][j];
+      string personBirthday = string(birthday[personId].begin(),
+                                     birthday[personId].end());
+      if (personBirthday >= date)
+        validNodesForTag.push_back(personId);
+    }
+
+    if (validNodesForTag.size() < currentMin)
+      continue;
+
+    int range = findRange(tagId, date, validNodesForTag);
+
+    if (range > currentMin) {
+      tagRanges.pop();
       tagRanges.push(make_pair(range, tagName));
+    } else if (range == currentMin) {
+      if (tagName < currentMinTag) {
+        tagRanges.pop();
+        tagRanges.push(make_pair(range, tagName));
+      }
     }
   }
 
