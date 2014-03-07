@@ -1,2 +1,7 @@
 data/
 *.swp
+*.tar.gz
+*.box
+.vagrant/
+Vagrantfile
+queries
