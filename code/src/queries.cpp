@@ -1,6 +1,3 @@
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -23,8 +20,10 @@ using namespace std;
  */
 
 // Function prototypes
-vector<int> shortestPath(int source, int minWeight, int tagId, vector<bool>& isValid);
-unordered_map< int, vector<int> > readForumTags(string forumTagsFile);
+void shortestPath(int source, int minWeight, int tagId, vector<bool>& isValid,
+                  vector<int>& d);
+void readForumTags(string forumTagsFile,
+                   unordered_map< int, vector<int> >& forumTags);
 
 // Graph
 typedef pair<unsigned int, int> Edge;
@@ -49,227 +48,129 @@ unordered_map<int, unordered_set<int>> personTags;
 unsigned int nverts = 0;
 unsigned int nedges = 0;
 
-void readTagNames(string tagNamesFile) {
-  ifstream f(tagNamesFile.c_str());
-  string column;
-  getline(f, column); // Skip first header line
+void readTagNames(string tagNamesFilename) {
+  FILE* tagNamesFile = fopen(tagNamesFilename.c_str(), "r");
 
-  while (getline(f, column, '|')) {
+  char tagName[120] = {0};
+  int tagId;
 
-    int id = atoi(column.c_str());
-
-    getline(f, column, '|');
-    tagIdToName[id] = column;
-    tagNameToId[column] = id;
-
-    getline(f, column); // Skip to the next line
+  fscanf(tagNamesFile, "%*[^\n]\n");
+  while (fscanf(tagNamesFile, "%d|%[^|]|%*[^\n]\n", &tagId, tagName) != EOF) {
+    tagIdToName[tagId] = string(tagName);
+    tagNameToId[string(tagName)] = tagId;
   }
 
-  f.close();
+  fclose(tagNamesFile);
 }
 
-void readPersonForumTags(string personForumsFile, string forumTagsFile) {
-  unordered_map< int, vector<int> > forumTags = readForumTags(forumTagsFile);
+void readPersonForumTags(string personForumsFilename,
+                         string forumTagsFilename) {
+  unordered_map< int, vector<int> > forumTags;
+  readForumTags(forumTagsFilename, forumTags);
   
-  ifstream f(personForumsFile.c_str());
-  string line;
-  getline(f, line); // skip header
+  FILE* personForumsFile = fopen(personForumsFilename.c_str(), "r");
+  unsigned int forumId, personId;
 
-  while(getline(f, line)) {
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
+  fscanf(personForumsFile, "%*[^\n]\n");
 
-    unsigned int forumId, personId;
-    string field;
-
-    getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> forumId;
-
-    getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> personId;
+  while(fscanf(personForumsFile, "%d|%d|%*[^\n]\n",
+        &forumId, &personId) != EOF) {
 
     if (personForumTags.size() < personId+1)
       personForumTags.resize(personId+1);
 
     vector<int> tags = forumTags[forumId];
-    for (int i = 0; i < tags.size(); i++)
+    for (unsigned int i = 0; i < tags.size(); i++)
       personForumTags[personId].insert(tags[i]);
   }
+
+  fclose(personForumsFile);
 }
 
-unordered_map< int, vector<int> > readForumTags(string forumTagsFile) {
-  unordered_map< int, vector<int> > forumTags;
+void
+readForumTags(string forumTagsFilename,
+              unordered_map< int, vector<int> >& forumTags) {
 
-  ifstream f(forumTagsFile.c_str());
-  string line;
-  getline(f, line); // skip header
+  FILE* forumTagsFile = fopen(forumTagsFilename.c_str(), "r");
+  int forumId, tagId;
 
-  while(getline(f, line)) {
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
+  fscanf(forumTagsFile, "%*[^\n]\n");
 
-    unsigned int forumId, tagId;
-    string field;
-
-    getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> forumId;
-
-    getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> tagId;
-
+  while(fscanf(forumTagsFile, "%d|%d\n", &forumId, &tagId) != EOF) {
     forumTags[forumId].push_back(tagId);
   }
 
-  return forumTags;
+  fclose(forumTagsFile);
 }
 
 void readCsvToMap(vector< unordered_set<int> >& map,
-                  string csvFile,
-                  int idxColumn, int valColumn,
+                  string csvFilename,
                   int idxDivider, int valDivider,
                   const vector<int>& transformedVal) {
 
-  ifstream f(csvFile.c_str());
-  string line;
-  getline(f, line); // skip header
+  FILE* csvFile = fopen(csvFilename.c_str(), "r");
+  int idx, val;
 
-  while(getline(f, line)) {
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
+  fscanf(csvFile, "%*[^\n]\n");
 
-    unsigned int idx, val;
-    string field;
-
-    for (int i = 0; i <= idxColumn; i++)
-      getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> idx;
+  while(fscanf(csvFile, "%d|%d%*[^\n]\n", &idx, &val) != EOF) {
     idx /= idxDivider;
-
-    for (int i = idxColumn+1; i <= valColumn; i++)
-      getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> val;
     val /= valDivider;
 
     if (transformedVal.size() > 0) {
       map[idx].insert(transformedVal[val]);
-      // Verify PersonID->OrgId
-      //cout << idx << "|" << 10*val << endl;
-      // Verify OrgId->OrgLocation
-      //cout << 10*val << "|" << transformedVal[val] << endl;
     } else {
       map[idx].insert(val);
-      // Verify PersonID->PersonLocation
-      //if (vectorSize > 0)
-        //cout << idx << "|" << val << endl;
     }
   }
 
-  f.close();
+  fclose(csvFile);
 }
 
-void readCsvToMap(vector< unordered_set<int> >& map,
-                  string csvFile,
-                  int idxColumn, int valColumn,
-                  int idxDivider, int valDivider) {
-  vector<int> vec;
-  readCsvToMap(map,
-               csvFile,
-               idxColumn, valColumn,
-               idxDivider, valDivider,
-               vec);
-}
-
-vector<int> readCsvToVector(string csvFile,
-                            int idxColumn, int valColumn,
-                            int idxDivider, int valDivider,
-                            int vectorSize, const vector<int>& transformedVal) {
-  vector<int> map;
+void readCsvToVector(string csvFilename,
+                     vector<int>& map,
+                     int idxDivider, int valDivider,
+                     int vectorSize, const vector<int>& transformedVal) {
   if (vectorSize > 0)
     map = vector<int>(vectorSize, -1);
 
-  ifstream f(csvFile.c_str());
-  string line;
-  getline(f, line); // skip header
+  FILE* csvFile = fopen(csvFilename.c_str(), "r");
+  unsigned int idx, val;
 
-  while(getline(f, line)) {
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
+  fscanf(csvFile, "%*[^\n]\n");
 
-    unsigned int idx, val;
-    string field;
-
-    for (int i = 0; i <= idxColumn; i++)
-      getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> idx;
+  while(fscanf(csvFile, "%d|%d%*[^\n]\n", &idx, &val) != EOF) {
     idx /= idxDivider;
-
-    for (int i = idxColumn+1; i <= valColumn; i++)
-      getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> val;
     val /= valDivider;
 
     if (idx+1 > map.size())
       map.resize(idx+1, -1);
-
+ 
     if (transformedVal.size() > 0) {
       map[idx] = transformedVal[val];
-      // Verify PersonID->OrgId
-      //cout << idx << "|" << 10*val << endl;
-      // Verify OrgId->OrgLocation
-      //cout << 10*val << "|" << transformedVal[val] << endl;
     } else {
       map[idx] = val;
-      // Verify PersonID->PersonLocation
-      //if (vectorSize > 0)
-        //cout << idx << "|" << val << endl;
     }
   }
-
-  f.close();
-  return map;
+  
+  fclose(csvFile);
 }
 
-vector<int> readCsvToVector(string csvFile,
-                            int idxColumn, int valColumn,
-                            int idxDivider, int valDivider,
-                            int vectorSize) {
+void readCsvToVector(string csvFile,
+                     vector<int>& map,
+                     int idxDivider, int valDivider,
+                     int vectorSize) {
   vector<int> vec;
-  return readCsvToVector(csvFile,
-                         idxColumn, valColumn,
+  return readCsvToVector(csvFile, map,
                          idxDivider, valDivider,
                          vectorSize, vec);
 }
 
-vector<int> readCsvToVector(string csvFile,
-                            int idxColumn, int valColumn,
-                            int idxDivider, int valDivider) {
+void readCsvToVector(string csvFile,
+                     vector<int>& map,
+                     int idxDivider, int valDivider) {
   int vectorSize = -1;
-  return readCsvToVector(csvFile,
-                         idxColumn, valColumn,
+  return readCsvToVector(csvFile, map,
                          idxDivider, valDivider,
                          vectorSize);
 }
@@ -280,127 +181,91 @@ vector<int> readCsvToVector(string csvFile,
 //  Person -> WorkCities (many)
 //  Person -> InCity
 void readPersonLocations(string organizationLocatedInFile,
-                            string personStudyAtFile,
-                            string personWorkAtFile,
-                            string personInCityFile) {
-  vector<int> orgLocation = readCsvToVector(organizationLocatedInFile,
-                                            0, 1,
-                                            10, 1);
+                         string personStudyAtFile,
+                         string personWorkAtFile,
+                         string personInCityFile) {
+  vector<int> orgLocation;
+  readCsvToVector(organizationLocatedInFile,
+                  orgLocation,
+                  10, 1);
   personStudyCities = vector< unordered_set<int> >(nverts);
   readCsvToMap(personStudyCities,
                personStudyAtFile,
-               0, 1,
                1, 10,
                orgLocation);
   personWorkCountries = vector< unordered_set<int> >(nverts);
   readCsvToMap(personWorkCountries,
                personWorkAtFile,
-               0, 1,
                1, 10,
                orgLocation);
-  personInCity = readCsvToVector(personInCityFile,
-                                 0, 1,
-                                 1, 1,
-                                 nverts);
+  personInCity = vector<int>(nverts);
+  readCsvToVector(personInCityFile,
+                  personInCity,
+                  1, 1,
+                  nverts);
 }
 
 void readParentLocations(string parentLocationFile) {
-  parentLocation = readCsvToVector(parentLocationFile,
-                                   0, 1, 1, 1);
+  parentLocation = vector<int>();
+  readCsvToVector(parentLocationFile,
+                  parentLocation,
+                  1, 1);
 }
 
-void readPlaceNames(string placeNameFile) {
-  ifstream f(placeNameFile.c_str());
-  string line;
-  getline(f, line); // skip header
+void readPlaceNames(string placeNamesFilename) {
+  FILE* placeNamesFile = fopen(placeNamesFilename.c_str(), "r");
 
-  while(getline(f, line)) {
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
+  char placeName[100] = {0};
+  int placeId;
 
-    int placeId;
-    string placeName;
-
-    string field;
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> placeId;
-
-    getline(ss, field, '|');
-
-    st.clear();
-    st.str(field);
-    st >> placeName;
-
+  fscanf(placeNamesFile, "%*[^\n]\n");
+  while (fscanf(placeNamesFile, "%d|%[^|]|%*[^\n]\n",
+                &placeId, placeName) != EOF) {
     placeNameToId[placeName].push_back(placeId);
-    //cout << placeNameToId[placeName] << "|" << placeName << endl;
   }
 
-  f.close();
+  fclose(placeNamesFile);
 }
 
-void createNodes(string personFile) {
+void createNodes(string personFilename) {
   // File format: id(0 to maxID)|...|...|...|YYYY-DD-MM|....
-  ifstream f(personFile.c_str());
-  string column;
-  getline(f, column); // Skip first header line
+  FILE* personFile = fopen(personFilename.c_str(), "r");
 
-  while (getline(f, column, '|')) {
+  char personBirthday[11] = {0};
+  unsigned int personId;
 
-    // ID: column 0
-    //Person* p = (Person*) malloc(sizeof(Person));
-    //p->id = atoi(column.c_str());
-    unsigned int id = atoi(column.c_str());
-    if (id + 1 > nverts)
-      nverts = id + 1;
+  fscanf(personFile, "%*[^\n]\n");
+  while (fscanf(personFile, "%d|%*[^|]|%*[^|]|%*[^|]|%10s|%*[^\n]\n",
+                &personId, personBirthday) != EOF) {
+    
+    if (personId + 1 > nverts)
+      nverts = personId + 1;
     if (nverts > graph.size()) {
       graph.resize(nverts);
       birthday.resize(nverts);
-    }
+    } 
 
-    // Birthday: column 4:1
-    for (int i = 0; i < 4; i++)
-      getline(f, column, '|');
-    //strcpy(p->birthday, column.c_str());
-    birthday[id] = vector<char>(10);
-    strcpy(&birthday[id][0], column.c_str());
-
-    //g[*p] = vector< pair<Person, int> >();
-    graph[id] = vector<Edge>();
-
-    getline(f, column); // Skip to the next line
+    birthday[personId] = vector<char>(10);
+    strcpy(&birthday[personId][0], personBirthday);
+    
+    graph[personId] = vector<Edge>();
   }
 
-  f.close();
+  fclose(personFile);
 }
 
-void assignPersonTags(string personTagsFile) {
-  ifstream f(personTagsFile.c_str());
+void assignPersonTags(string personTagsFilename) {
+  FILE* personTagsFile = fopen(personTagsFilename.c_str(), "r");
 
-  string line;
-  getline(f, line); // skip header
-  while(getline(f, line)) {
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
-    int personId, tagId;
-    string field;
+  int personId, tagId;
 
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> personId;
-
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> tagId;
-
+  fscanf(personTagsFile, "%*[^\n]\n");
+  while (fscanf(personTagsFile, "%d|%d\n", &personId, &tagId) != EOF) {
     tagPersons[tagId].push_back(personId);
     personTags[personId].insert(tagId);
   }
 
-  f.close();
+  fclose(personTagsFile);
 
   vector< pair<int, int> > tagIdAndNumPersons
     = vector< pair<int, int> >(tagPersons.size());
@@ -417,37 +282,22 @@ void assignPersonTags(string personTagsFile) {
        greater< pair<int, int> >());
 
   sortedTagIds = vector<int>(tagIdAndNumPersons.size(), -1);
-  for (int i = 0; i < tagIdAndNumPersons.size(); i++) {
+  for (unsigned int i = 0; i < tagIdAndNumPersons.size(); i++) {
     sortedTagIds[i] = tagIdAndNumPersons[i].second;
   }
 }
 
-void createEdges(string personKnowsFile) {
-  // File format: personId1|personId2
-  ifstream f(personKnowsFile.c_str());
+void createEdges(string personKnowsFilename) {
+  FILE* personKnowsFile = fopen(personKnowsFilename.c_str(), "r");
 
-  string line;
-  getline(f, line); // skip header
-  while(getline(f, line)) {
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
-    unsigned int u, v;
-    string field;
+  unsigned int u, v;
 
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> u;
-
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> v;
-
+  fscanf(personKnowsFile, "%*[^\n]\n");
+  while (fscanf(personKnowsFile, "%d|%d\n", &u, &v) != EOF) {
     graph[u].push_back(make_pair(v, 0));
   }
 
-  f.close();
+  fclose(personKnowsFile);
 }
 
 void incrementEdgeWeight(unsigned int u, unsigned int v) {
@@ -455,65 +305,34 @@ void incrementEdgeWeight(unsigned int u, unsigned int v) {
        e != graph[u].end(); e++) {
     if (e->first == v) {
       e->second++;
-      //if ((u == 58 && v == 935) || (u == 935 && v == 58))
-      //  cout << u << "->" << v << " = " << e->second << endl;
       break;
     }
   }
 }
 
-void computeEdgeWeights(string commentCreatorFile, string commentReplyFile) {
+void computeEdgeWeights(string commentCreatorFilename,
+                        string commentReplyFilename) {
+  FILE* commentCreatorFile = fopen(commentCreatorFilename.c_str(), "r");
+
   vector<int> commentOwner;
-  ifstream f;
-  string line;
-  
-  // This loop is verified
-  f.open(commentCreatorFile.c_str());
-  getline(f, line);
-  while(getline(f, line)) {
-    string field;
-    long commentId;
-    int ownerId;
+  int commentId;
+  int ownerId;
 
-    istringstream ss(line);
-    istringstream st;
-
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> commentId;
-
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> ownerId;
-
+  fscanf(commentCreatorFile, "%*[^\n]\n");
+  while (fscanf(commentCreatorFile, "%d|%d\n", &commentId, &ownerId) != EOF) {
     commentOwner.push_back(ownerId);
   }
-  f.close();
+  fclose(commentCreatorFile);
 
-  f.open(commentReplyFile);
-  getline(f, line);
-  while(getline(f, line)) {
-    long cid1, cid2;
-    string field;
+  FILE* commentReplyFile = fopen(commentReplyFilename.c_str(), "r");
+  
+  int cid1, cid2;
 
-    istringstream ss(line); // entire line into stringstream
-    istringstream st;
-
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> cid1;
-
-    getline(ss, field, '|');
-    st.clear();
-    st.str(field);
-    st >> cid2;
-
+  fscanf(commentReplyFile, "%*[^\n]\n");
+  while (fscanf(commentReplyFile, "%d|%d\n", &cid1, &cid2) != EOF) {
     incrementEdgeWeight(commentOwner[cid1/10], commentOwner[cid2/10]);
   }
-  f.close();
+  fclose(commentReplyFile);
 
   for (unsigned int u = 0; u < nverts; u++) {
     for (vector<Edge>::iterator e = graph[u].begin();
@@ -536,7 +355,8 @@ void computeEdgeWeights(string commentCreatorFile, string commentReplyFile) {
 }
 
 float getClosenessCentrality(int personId, int tagId, vector<bool>& isValid) {
-  vector<int> shortestDists = shortestPath(personId, -1, tagId, isValid);
+  vector<int> shortestDists;
+  shortestPath(personId, -1, tagId, isValid, shortestDists);
   
   float numReachable = 0;
   float sumOfShortestDists = 0;
@@ -557,9 +377,10 @@ bool isPersonMemberOfForumWithTag(int personId, int tagId) {
   return (personForumTags[personId].count(tagId) > 0);
 }
 
-vector<int> shortestPath(int source, int minWeight, int tagId,
-                         vector<bool>& isValid) {
-  vector<int> d = vector<int>(nverts, INT_MAX);
+void shortestPath(int source, int minWeight, int tagId,
+                  vector<bool>& isValid,
+                  vector<int>& d) {
+  d = vector<int>(nverts, INT_MAX);
   d[source] = 0;
 
   queue<int> Q;
@@ -581,8 +402,6 @@ vector<int> shortestPath(int source, int minWeight, int tagId,
       }
     }
   }
-
-  return d;
 }
 
 void constructGraph(string dataDir) {
@@ -700,21 +519,9 @@ bool isValidPersonLocation(int personId, vector<int> placeIds) {
         parentLocation[parentLocation[personInCity[personId]]] == placeId)
       return true;
 
-    if (personId == -1) {
-      cout << "Target: " << placeId << endl;
-      cout << "In city: " << personInCity[personId] << endl;
-      cout << "In country: " << parentLocation[personInCity[personId]] << endl;
-      cout << "In continent: " << parentLocation[parentLocation[personInCity[personId]]] << endl;
-    }
-
     unordered_set<int> studyCities = personStudyCities[personId];
     for (unordered_set<int>::iterator it = studyCities.begin();
          it != studyCities.end(); it++) {
-      if (personId == -1) {
-        cout << "Study city: " << *it << endl;
-        cout << "Study country: " << parentLocation[*it] << endl;
-        cout << "Study continent: " << parentLocation[parentLocation[*it]] << endl;
-      }
       if (*it == placeId || // p is a city
           parentLocation[*it] == placeId || // p is a country
           parentLocation[parentLocation[*it]] == placeId) // p is a continent
@@ -724,10 +531,6 @@ bool isValidPersonLocation(int personId, vector<int> placeIds) {
     unordered_set<int> workCountries = personWorkCountries[personId];
     for (unordered_set<int>::iterator it = workCountries.begin();
          it != workCountries.end(); it++) {
-      if (personId == -1) {
-        cout << "Work country: " << *it << endl;
-        cout << "Work continent: " << parentLocation[*it] << endl;
-      }
       if (*it == placeId || // p is a country
           parentLocation[*it] == placeId) // p is a continent
         return true;
@@ -737,10 +540,10 @@ bool isValidPersonLocation(int personId, vector<int> placeIds) {
   return false;
 }
 
-int findRange(int tagId, string date, vector<int> validNodesForTag) {
+int findRange(int tagId, string date, vector<int>& validNodesForTag) {
   vector<bool> visited = vector<bool>(nverts, true);
 
-  for (int i = 0; i < validNodesForTag.size(); i++) {
+  for (unsigned int i = 0; i < validNodesForTag.size(); i++) {
     int validPersonId = validNodesForTag[i];
     visited[validPersonId] = false;
   }
@@ -862,18 +665,16 @@ bool float_greater_then_numeric_lesser(const pair< float, int >& lhs,
   }
 }
 
-priority_queue< pair<int,string>, vector< pair<int, string> >,
-  numeric_greater_then_lexico_lesser > findTopTags(string date, int k) {
-
-  priority_queue< pair<int, string>, vector< pair<int, string> >,
-    numeric_greater_then_lexico_lesser > tagRanges;
+void findTopTags(string date, int k,
+                 priority_queue< pair<int,string>, vector< pair<int, string> >,
+                  numeric_greater_then_lexico_lesser >& tagRanges) {
 
   for (int i = 0; i < k; i++) {
     int tagId = sortedTagIds[i];
     string tagName = tagIdToName[tagId];
 
     vector<int> validNodesForTag;
-    for (int j = 0; j < tagPersons[tagId].size(); j++) {
+    for (unsigned int j = 0; j < tagPersons[tagId].size(); j++) {
       int personId = tagPersons[tagId][j];
       string personBirthday = string(birthday[personId].begin(),
                                      birthday[personId].end());
@@ -885,18 +686,18 @@ priority_queue< pair<int,string>, vector< pair<int, string> >,
     tagRanges.push(make_pair(range, tagName));
   }
 
-  for (int i = k; i < sortedTagIds.size(); i++) {
+  for (unsigned int i = k; i < sortedTagIds.size(); i++) {
     int tagId = sortedTagIds[i];
     string tagName = tagIdToName[tagId];
 
-    int currentMin = tagRanges.top().first;
+    unsigned int currentMin = tagRanges.top().first;
     string currentMinTag = tagRanges.top().second;
 
     if (tagPersons[tagId].size() < currentMin)
       break;
 
     vector<int> validNodesForTag;
-    for (int j = 0; j < tagPersons[tagId].size(); j++) {
+    for (unsigned int j = 0; j < tagPersons[tagId].size(); j++) {
       int personId = tagPersons[tagId][j];
       string personBirthday = string(birthday[personId].begin(),
                                      birthday[personId].end());
@@ -907,7 +708,7 @@ priority_queue< pair<int,string>, vector< pair<int, string> >,
     if (validNodesForTag.size() < currentMin)
       continue;
 
-    int range = findRange(tagId, date, validNodesForTag);
+    unsigned int range = findRange(tagId, date, validNodesForTag);
 
     if (range > currentMin) {
       tagRanges.pop();
@@ -919,20 +720,16 @@ priority_queue< pair<int,string>, vector< pair<int, string> >,
       }
     }
   }
-
-  return tagRanges;
 }
 
-vector< pair<float, int> > findTopCloseness(int tagId) {
-
-  vector< pair<float, int> > closenessCentralities;
+void findTopCloseness(int tagId, vector< pair<float, int> >& closenessCentralities) {
 
   vector<bool> isValid = vector<bool>(nverts, false);
-  for (int i = 0; i < nverts; i++)
+  for (unsigned int i = 0; i < nverts; i++)
     if (isPersonMemberOfForumWithTag(i, tagId))
       isValid[i] = true;
   
-  for (int personId = 0; personId < nverts; personId++) {
+  for (unsigned int personId = 0; personId < nverts; personId++) {
     if (!isValid[personId])
       continue;
     float closenessCentrality = getClosenessCentrality(personId, tagId,
@@ -942,17 +739,14 @@ vector< pair<float, int> > findTopCloseness(int tagId) {
   
   sort(closenessCentralities.begin(), closenessCentralities.end(),
        float_greater_then_numeric_lesser);
-
-  return closenessCentralities;
 }
 
-vector< pair< int, pair<unsigned int, unsigned int> > >
-findTopPairs(int maxHops, vector<int> placeIds) {
-
-  vector< pair< int, pair<unsigned int, unsigned int> > > candidates;
+void
+findTopPairs(int maxHops, vector<int> placeIds,
+             vector< pair< int, pair<unsigned int, unsigned int> > >& candidates) {
 
   vector<bool> isValid = vector<bool>(nverts, false);
-  for (int i = 0; i < nverts; i++) {
+  for (unsigned int i = 0; i < nverts; i++) {
     if (isValidPersonLocation(i, placeIds)) {
       isValid[i] = true;
     }
@@ -1008,22 +802,22 @@ findTopPairs(int maxHops, vector<int> placeIds) {
 
   sort(candidates.begin(), candidates.end(),
        numeric_greater_then_numeric_lesser);
-
-  return candidates;
 }
 
 void solveQuery1(int source, int dest, int minWeight) {
   vector<bool> isValid;
-  vector<int> shortestDists = shortestPath(source, minWeight, -1, isValid);
+  vector<int> shortestDists;
+  shortestPath(source, minWeight, -1, isValid, shortestDists);
   if (shortestDists[dest] == INT_MAX)
-    cout << "-1" << endl;
+    printf("-1\n");
   else
-    cout << shortestDists[dest] << endl;
+    printf("%d\n", shortestDists[dest]);
 }
 
 void solveQuery2(int k, char date[11]) {
   priority_queue< pair<int,string>, vector< pair<int, string> >,
-   numeric_greater_then_lexico_lesser > toptags = findTopTags(string(date), k);
+   numeric_greater_then_lexico_lesser > toptags;
+  findTopTags(string(date), k, toptags);
 
   vector<string> toprint;
 
@@ -1034,33 +828,34 @@ void solveQuery2(int k, char date[11]) {
 
   int numtags = toprint.size();
   if (numtags > 0) {
-    cout << toprint[numtags - 1];
+    printf("%s", toprint[numtags - 1].c_str());
     for (int i = numtags - 2; i >= numtags - k; i--) {
-      cout << " " << toprint[i];
+      printf(" %s", toprint[i].c_str());
     }
   }
 
-  cout << endl;
+  printf("\n");
 }
 
 void solveQuery3(int k, int h, char* placeName) {
   vector< pair<int, pair<unsigned int, unsigned int> > >
-    toppairs = findTopPairs(h, placeNameToId[string(placeName)]);
+    toppairs;
+  findTopPairs(h, placeNameToId[string(placeName)], toppairs);
   if (toppairs.size() > 0)
-    cout << toppairs[0].second.first << "|" << toppairs[0].second.second;
-  for (unsigned int i = 1; i < k && i < toppairs.size(); i++)
-    cout << " " << toppairs[i].second.first << "|"
-         << toppairs[i].second.second;
-  cout << endl;
+    printf("%d|%d", toppairs[0].second.first, toppairs[0].second.second);
+  for (unsigned int i = 1; i < (unsigned int) k && i < toppairs.size(); i++)
+    printf(" %d|%d", toppairs[i].second.first, toppairs[i].second.second);
+  printf("\n");;
 }
 
 void solveQuery4(int k, int tagId) {
-  vector< pair<float, int> > topcentral = findTopCloseness(tagId);
+  vector< pair<float, int> > topcentral;
+  findTopCloseness(tagId, topcentral);
   if (topcentral.size() > 0)
-    cout << topcentral[0].second;
-  for (unsigned int i = 1; i < k && i < topcentral.size(); i++)
-    cout << " " << topcentral[i].second;
-  cout << endl;
+    printf("%d", topcentral[0].second);
+  for (unsigned int i = 1; i < (unsigned int) k && i < topcentral.size(); i++)
+    printf(" %d", topcentral[i].second);
+  printf("\n");
 }
 
 void solveQueries(string queryFilename) {
@@ -1106,11 +901,12 @@ void solveQueries(string queryFilename) {
       }
     } // switch
   } // while
+  fclose(queryFile);
 }
 
 int main(int argc, char* argv[]) {
   if (argc != 3) {
-    cout << "Invalid number of arguments" << endl;
+    printf("Invalid number of arguments\n");
     return -1;
   }
 
