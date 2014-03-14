@@ -1,1 +1,1 @@
-g++ --std=c++0x -O3 queries.cpp -o queries -march=native -mtune=native
+g++ --std=c++0x src/queries.cpp -O3 -o queries -march=native -mtune=native -lpthread -pthread
