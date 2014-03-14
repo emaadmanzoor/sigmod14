@@ -10,20 +10,22 @@
 #include <queue>
 #include <cstdio>
 #include <time.h>
+#include <thread>
+
+#define RESULT_BUF_SZ 8192
 
 using namespace std;
-
-/*
- * Command-line args:
- *  dataDir
- *  queryFile
- */
 
 // Function prototypes
 void shortestPath(int source, int minWeight, int tagId, vector<bool>& isValid,
                   vector<int>& d);
 void readForumTags(string forumTagsFile,
                    unordered_map< int, vector<int> >& forumTags);
+void solveQuery1(int source, int dest, int minWeight,
+                 char result[RESULT_BUF_SZ]);
+void solveQuery2(int k, string date, char result[RESULT_BUF_SZ]);
+void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]);
+void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]);
 
 // Graph
 typedef pair<unsigned int, int> Edge;
@@ -804,20 +806,24 @@ findTopPairs(int maxHops, vector<int> placeIds,
        numeric_greater_then_numeric_lesser);
 }
 
-void solveQuery1(int source, int dest, int minWeight) {
+void solveQuery1(int source, int dest, int minWeight,
+                 char result[RESULT_BUF_SZ]) {
   vector<bool> isValid;
   vector<int> shortestDists;
   shortestPath(source, minWeight, -1, isValid, shortestDists);
-  if (shortestDists[dest] == INT_MAX)
-    printf("-1\n");
-  else
-    printf("%d\n", shortestDists[dest]);
+  if (shortestDists[dest] == INT_MAX) {
+    //printf("-1\n");
+    snprintf(result, RESULT_BUF_SZ, "-1");
+  } else {
+    //printf("%d\n", shortestDists[dest]);
+    snprintf(result, RESULT_BUF_SZ, "%d", shortestDists[dest]);
+  }
 }
 
-void solveQuery2(int k, char date[11]) {
+void solveQuery2(int k, string date, char result[RESULT_BUF_SZ]) {
   priority_queue< pair<int,string>, vector< pair<int, string> >,
    numeric_greater_then_lexico_lesser > toptags;
-  findTopTags(string(date), k, toptags);
+  findTopTags(date, k, toptags);
 
   vector<string> toprint;
 
@@ -827,48 +833,74 @@ void solveQuery2(int k, char date[11]) {
   }
 
   int numtags = toprint.size();
+  string r = "";
   if (numtags > 0) {
-    printf("%s", toprint[numtags - 1].c_str());
+    //printf("%s", toprint[numtags - 1].c_str());
+    r += toprint[numtags - 1];
     for (int i = numtags - 2; i >= numtags - k; i--) {
-      printf(" %s", toprint[i].c_str());
+      //printf(" %s", toprint[i].c_str());
+      r += " " + toprint[i];
     }
   }
 
-  printf("\n");
+  //printf("\n");
+  snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 }
 
-void solveQuery3(int k, int h, char* placeName) {
+void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
   vector< pair<int, pair<unsigned int, unsigned int> > >
     toppairs;
-  findTopPairs(h, placeNameToId[string(placeName)], toppairs);
-  if (toppairs.size() > 0)
-    printf("%d|%d", toppairs[0].second.first, toppairs[0].second.second);
-  for (unsigned int i = 1; i < (unsigned int) k && i < toppairs.size(); i++)
-    printf(" %d|%d", toppairs[i].second.first, toppairs[i].second.second);
-  printf("\n");;
+  findTopPairs(h, placeNameToId[placeName], toppairs);
+  string r = "";
+  if (toppairs.size() > 0) {
+    //printf("%d|%d", toppairs[0].second.first, toppairs[0].second.second);
+    r += to_string((long long) toppairs[0].second.first) + "|" +
+         to_string((long long) toppairs[0].second.second);
+  }
+  for (unsigned int i = 1; i < (unsigned int) k && i < toppairs.size(); i++) {
+    //printf(" %d|%d", toppairs[i].second.first, toppairs[i].second.second);
+    r += " " + to_string((long long) toppairs[i].second.first) + "|" +
+         to_string((long long) toppairs[i].second.second);
+  }
+  //printf("\n");;
+  snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 }
 
-void solveQuery4(int k, int tagId) {
+void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]) {
   vector< pair<float, int> > topcentral;
   findTopCloseness(tagId, topcentral);
-  if (topcentral.size() > 0)
-    printf("%d", topcentral[0].second);
-  for (unsigned int i = 1; i < (unsigned int) k && i < topcentral.size(); i++)
-    printf(" %d", topcentral[i].second);
-  printf("\n");
+  string r = "";
+  if (topcentral.size() > 0) {
+    //printf("%d", topcentral[0].second);
+    r += to_string((long long) topcentral[0].second);
+  }
+  for (unsigned int i = 1; i < (unsigned int) k && i < topcentral.size(); i++) {
+    //printf(" %d", topcentral[i].second);
+    r += " " + to_string((long long) topcentral[i].second);
+  }
+  //printf("\n");
+  snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 }
 
 void solveQueries(string queryFilename) {
   FILE* queryFile = fopen(queryFilename.c_str(), "r");
+
+  vector<thread> threads;
+  vector<int> mapThreadToQueryType;
+  vector<queue<char*>> resultQueues(4);
 
   int queryType;
   while(fscanf(queryFile, "query%d", &queryType) != EOF) {
     switch (queryType) {
       case 1: {
         // query1(100, 100, -1)
+        mapThreadToQueryType.push_back(queryType);
+        char* result = new char[RESULT_BUF_SZ];
+        resultQueues[queryType-1].push(result);
         int source, dest, minWeight;
         fscanf(queryFile, "(%d, %d, %d)\n", &source, &dest, &minWeight);
-        solveQuery1(source, dest, minWeight);
+        threads.push_back(thread(solveQuery1, source, dest,
+                                         minWeight, result));
         break;
       }
 
@@ -876,8 +908,11 @@ void solveQueries(string queryFilename) {
         // query2(3, 1980-02-01)
         int k;
         char date[11]; // 10 chars for data, 1 for NULL
+        mapThreadToQueryType.push_back(queryType);
+        char* result = new char[RESULT_BUF_SZ];
+        resultQueues[queryType-1].push(result);
         fscanf(queryFile, "(%d, %10s)\n", &k, date);
-        solveQuery2(k, date);
+        threads.push_back(thread(solveQuery2, k, string(date), result));
         break;
       }
 
@@ -885,8 +920,12 @@ void solveQueries(string queryFilename) {
         // query3(3, 2, Democratic_Republic_Of_Congo)
         int k, h;
         char placeName[100] = {0}; // 2 * longest string in place dictionaries in LDBC
+        mapThreadToQueryType.push_back(queryType);
+        char* result = new char[RESULT_BUF_SZ];
+        resultQueues[queryType-1].push(result);
         fscanf(queryFile, "(%d, %d, %[^)])\n", &k, &h, placeName);
-        solveQuery3(k, h, placeName);
+        threads.push_back(thread(solveQuery3, k, h, string(placeName),
+                                         result));
         break;
       }
 
@@ -894,14 +933,28 @@ void solveQueries(string queryFilename) {
         //query4(3, Bill_Clinton)
         int k;
         char tagName[120] = {0}; // 2 * longest string in tag dictionaries in LDBC
+        mapThreadToQueryType.push_back(queryType);
+        char* result = new char[RESULT_BUF_SZ];
+        resultQueues[queryType-1].push(result);
         fscanf(queryFile, "(%d, %[^)])\n", &k, tagName);
         int tagId = tagNameToId[string(tagName)];
-        solveQuery4(k, tagId);
+        threads.push_back(thread(solveQuery4, k, tagId, result));
         break;
       }
     } // switch
   } // while
   fclose(queryFile);
+
+  for (unsigned int i = 0; i < threads.size();
+       ++i) {
+    threads[i].join();
+    int queryType = mapThreadToQueryType[i];
+    const char* result = (resultQueues[queryType-1]).front();
+
+    printf("%s\n", result);
+    delete[] result;
+    resultQueues[queryType-1].pop();
+  }
 }
 
 int main(int argc, char* argv[]) {
