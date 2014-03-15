@@ -11,8 +11,10 @@
 #include <cstdio>
 #include <time.h>
 #include <thread>
+#include "ThreadPool.h"
 
-#define RESULT_BUF_SZ 8192
+#define RESULT_BUF_SZ 1024
+#define MAX_NUM_THREADS 100
 
 using namespace std;
 
@@ -177,11 +179,6 @@ void readCsvToVector(string csvFile,
                          vectorSize);
 }
 
-
-// Maps the following:
-//  Person -> StudyCity
-//  Person -> WorkCities (many)
-//  Person -> InCity
 void readPersonLocations(string organizationLocatedInFile,
                          string personStudyAtFile,
                          string personWorkAtFile,
@@ -413,8 +410,6 @@ void constructGraph(string dataDir) {
   string personKnowsFile = dataDir + "/person_knows_person.csv";
   
   createEdges(personKnowsFile);
-  // printGraph() | sort -n should be == person_knows_person.csv | sort -n
-  //printGraph();
   
   string commentCreatorFile = dataDir + "/comment_hasCreator_person.csv";
   string commentReplyFile = dataDir + "/comment_replyOf_comment.csv";
@@ -423,20 +418,8 @@ void constructGraph(string dataDir) {
   string tagNamesFile = dataDir + "/tag.csv";
   readTagNames(tagNamesFile);
 
-  /* Verified
-  for (auto kv : tagName)
-    cout << kv.first << "|" << kv.second << endl;
-   */
-
   string personTagsFile = dataDir + "/person_hasInterest_tag.csv";
   assignPersonTags(personTagsFile);
-
-  /* Verified
-  for (auto kv : tagPersons) {
-    int tagId = kv.first;
-    for (auto personId : kv.second)
-      cout << personId << "|" << tagId << endl;
-  }*/
 
   string organizationLocatedInFile = dataDir + "/organisation_isLocatedIn_place.csv";
   string personStudyAtFile = dataDir + "/person_studyAt_organisation.csv";
@@ -446,72 +429,17 @@ void constructGraph(string dataDir) {
                       personStudyAtFile, personWorkAtFile,
                       personInCityFile);
 
-  /* Verified
-   * PersonId|OrgId (study/work)
-   * PersonId|CityId
-   */
-
   string parentLocationFile = dataDir + "/place_isPartOf_place.csv";
   readParentLocations(parentLocationFile);
 
-  /* Verified
-   * LocId|ParentLocId
-   *
-  for (unsigned int i = 0; i < parentLocation.size(); i++)
-    if (parentLocation[i] >= 0)
-      cout << i << "|" << parentLocation[i] << endl;
-   */
-
   string placeNameFile = dataDir + "/place.csv";
   readPlaceNames(placeNameFile);
-
-  /* Verified
-   for (auto kv : placeNameToId)
-    cout << kv.second << "|" << kv.first << endl;
-   */
 
   string personForumsFile = dataDir + "/forum_hasMember_person.csv";
   string forumTagsFile = dataDir + "/forum_hasTag_tag.csv";
   readPersonForumTags(personForumsFile, forumTagsFile);
 }
 
-/*
- * Verified that lexicographic birthday compare
- * works as required, and person-has-tag check.
- */
-/*bool isValidPerson(int personId, int tagId, string date) {
-  string personBirthday = string(birthday[personId].begin(),
-                                 birthday[personId].end());
-  if (personBirthday >= date &&
-      tagPersons[tagId].count(personId) > 0) {
-    return true;
-  } else {
-    return false;
-  }
-}*/
-
-/*
- * For query3(k, h, p), p is a location (city, country, continent)
- * Person is valid if:
- *
- *  p is a city
- *
- *  inCity[person] = p
- *  workCity[person] = p
- *  studyCity[person] = p
- *
- *  p is a country
- *
- *  parentLocation[inCity[person]] = p
- *  parentLocation[workCity[person]] = p
- *  parentLocation[studyCity[person]] = p
- *
- *  p is a continent
- *
- *  parentLocation[parentLocation[inCity[person]]] = p
- *  parentLocation[parentLocation[workCity[person]]] = p
- *  parentLocation[parentLocation[studyCity[person]]] = p
- */
 bool isValidPersonLocation(int personId, vector<int> placeIds) {
   for (unsigned int i = 0; i < placeIds.size(); i++) {
     int placeId = placeIds[i];
@@ -759,7 +687,6 @@ findTopPairs(int maxHops, vector<int> placeIds,
     if (!isValidPersonLocation(i, placeIds))
       continue;
 
-    //cout << "DFS from " << i << endl;
     vector<bool> visited = vector<bool>(nverts, false);
     vector<int> numHops = vector<int>(nverts, INT_MAX);
     vector<bool> isCandidate = vector<bool>(nverts, false);
@@ -812,10 +739,8 @@ void solveQuery1(int source, int dest, int minWeight,
   vector<int> shortestDists;
   shortestPath(source, minWeight, -1, isValid, shortestDists);
   if (shortestDists[dest] == INT_MAX) {
-    //printf("-1\n");
     snprintf(result, RESULT_BUF_SZ, "-1");
   } else {
-    //printf("%d\n", shortestDists[dest]);
     snprintf(result, RESULT_BUF_SZ, "%d", shortestDists[dest]);
   }
 }
@@ -835,15 +760,12 @@ void solveQuery2(int k, string date, char result[RESULT_BUF_SZ]) {
   int numtags = toprint.size();
   string r = "";
   if (numtags > 0) {
-    //printf("%s", toprint[numtags - 1].c_str());
     r += toprint[numtags - 1];
     for (int i = numtags - 2; i >= numtags - k; i--) {
-      //printf(" %s", toprint[i].c_str());
       r += " " + toprint[i];
     }
   }
 
-  //printf("\n");
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 }
 
@@ -853,16 +775,13 @@ void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
   findTopPairs(h, placeNameToId[placeName], toppairs);
   string r = "";
   if (toppairs.size() > 0) {
-    //printf("%d|%d", toppairs[0].second.first, toppairs[0].second.second);
     r += to_string((long long) toppairs[0].second.first) + "|" +
          to_string((long long) toppairs[0].second.second);
   }
   for (unsigned int i = 1; i < (unsigned int) k && i < toppairs.size(); i++) {
-    //printf(" %d|%d", toppairs[i].second.first, toppairs[i].second.second);
     r += " " + to_string((long long) toppairs[i].second.first) + "|" +
          to_string((long long) toppairs[i].second.second);
   }
-  //printf("\n");;
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 }
 
@@ -871,83 +790,80 @@ void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]) {
   findTopCloseness(tagId, topcentral);
   string r = "";
   if (topcentral.size() > 0) {
-    //printf("%d", topcentral[0].second);
     r += to_string((long long) topcentral[0].second);
   }
   for (unsigned int i = 1; i < (unsigned int) k && i < topcentral.size(); i++) {
-    //printf(" %d", topcentral[i].second);
     r += " " + to_string((long long) topcentral[i].second);
   }
-  //printf("\n");
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 }
 
 void solveQueries(string queryFilename) {
   FILE* queryFile = fopen(queryFilename.c_str(), "r");
 
-  vector<thread> threads;
   vector<int> mapThreadToQueryType;
   vector<queue<char*>> resultQueues(4);
 
-  int queryType;
-  while(fscanf(queryFile, "query%d", &queryType) != EOF) {
-    switch (queryType) {
-      case 1: {
-        // query1(100, 100, -1)
-        mapThreadToQueryType.push_back(queryType);
-        char* result = new char[RESULT_BUF_SZ];
-        resultQueues[queryType-1].push(result);
-        int source, dest, minWeight;
-        fscanf(queryFile, "(%d, %d, %d)\n", &source, &dest, &minWeight);
-        threads.push_back(thread(solveQuery1, source, dest,
-                                         minWeight, result));
-        break;
-      }
+  {
+    ThreadPool pool(MAX_NUM_THREADS);
 
-      case 2: {
-        // query2(3, 1980-02-01)
-        int k;
-        char date[11]; // 10 chars for data, 1 for NULL
-        mapThreadToQueryType.push_back(queryType);
-        char* result = new char[RESULT_BUF_SZ];
-        resultQueues[queryType-1].push(result);
-        fscanf(queryFile, "(%d, %10s)\n", &k, date);
-        threads.push_back(thread(solveQuery2, k, string(date), result));
-        break;
-      }
+    int queryType;
+    while(fscanf(queryFile, "query%d", &queryType) != EOF) {
+      switch (queryType) {
+        case 1: {
+          // query1(100, 100, -1)
+          mapThreadToQueryType.push_back(queryType);
+          char* result = new char[RESULT_BUF_SZ];
+          resultQueues[queryType-1].push(result);
+          int source, dest, minWeight;
+          fscanf(queryFile, "(%d, %d, %d)\n", &source, &dest, &minWeight);
+          pool.enqueue(solveQuery1, source, dest, minWeight, result);
+          break;
+        }
 
-      case 3: {
-        // query3(3, 2, Democratic_Republic_Of_Congo)
-        int k, h;
-        char placeName[100] = {0}; // 2 * longest string in place dictionaries in LDBC
-        mapThreadToQueryType.push_back(queryType);
-        char* result = new char[RESULT_BUF_SZ];
-        resultQueues[queryType-1].push(result);
-        fscanf(queryFile, "(%d, %d, %[^)])\n", &k, &h, placeName);
-        threads.push_back(thread(solveQuery3, k, h, string(placeName),
-                                         result));
-        break;
-      }
+        case 2: {
+          // query2(3, 1980-02-01)
+          int k;
+          char date[11]; // 10 chars for data, 1 for NULL
+          mapThreadToQueryType.push_back(queryType);
+          char* result = new char[RESULT_BUF_SZ];
+          resultQueues[queryType-1].push(result);
+          fscanf(queryFile, "(%d, %10s)\n", &k, date);
+          pool.enqueue(solveQuery2, k, string(date), result);
+          break;
+        }
 
-      case 4: {
-        //query4(3, Bill_Clinton)
-        int k;
-        char tagName[120] = {0}; // 2 * longest string in tag dictionaries in LDBC
-        mapThreadToQueryType.push_back(queryType);
-        char* result = new char[RESULT_BUF_SZ];
-        resultQueues[queryType-1].push(result);
-        fscanf(queryFile, "(%d, %[^)])\n", &k, tagName);
-        int tagId = tagNameToId[string(tagName)];
-        threads.push_back(thread(solveQuery4, k, tagId, result));
-        break;
-      }
-    } // switch
-  } // while
+        case 3: {
+          // query3(3, 2, Democratic_Republic_Of_Congo)
+          int k, h;
+          char placeName[100] = {0}; // 2 * longest string in place dictionaries in LDBC
+          mapThreadToQueryType.push_back(queryType);
+          char* result = new char[RESULT_BUF_SZ];
+          resultQueues[queryType-1].push(result);
+          fscanf(queryFile, "(%d, %d, %[^)])\n", &k, &h, placeName);
+          pool.enqueue(solveQuery3, k, h, string(placeName), result);
+          break;
+        }
+
+        case 4: {
+          //query4(3, Bill_Clinton)
+          int k;
+          char tagName[120] = {0}; // 2 * longest string in tag dictionaries in LDBC
+          mapThreadToQueryType.push_back(queryType);
+          char* result = new char[RESULT_BUF_SZ];
+          resultQueues[queryType-1].push(result);
+          fscanf(queryFile, "(%d, %[^)])\n", &k, tagName);
+          int tagId = tagNameToId[string(tagName)];
+          pool.enqueue(solveQuery4, k, tagId, result);
+          break;
+        }
+      } // switch
+    } // while
+  }
   fclose(queryFile);
 
-  for (unsigned int i = 0; i < threads.size();
+  for (unsigned int i = 0; i < mapThreadToQueryType.size();
        ++i) {
-    threads[i].join();
     int queryType = mapThreadToQueryType[i];
     const char* result = (resultQueues[queryType-1]).front();
 
