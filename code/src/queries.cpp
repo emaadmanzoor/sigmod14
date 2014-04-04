@@ -391,7 +391,7 @@ bool isPersonMemberOfForumWithTag(int personId, int tagId) {
 }
 
 void PFS(int source, vector<int>& L, int& Lsize, int& s,
-         const vector<bool>& valid, vector<bool>& visited) {
+         vector<bool>& unvisited) {
   L[source] = 0;
   Lsize = 1;
 
@@ -403,7 +403,7 @@ void PFS(int source, vector<int>& L, int& Lsize, int& s,
   while(!Q.empty()) {
     int u = Q.front();
     Q.pop();
-    visited[u] = true;
+    unvisited[u] = false;
 
     s = s + L[u];
 
@@ -411,7 +411,7 @@ void PFS(int source, vector<int>& L, int& Lsize, int& s,
       pair<int,int> f = graph[u][i];
       int v = f.first;
 
-      if (!valid[v])
+      if (!unvisited[v])
         continue;
 
       if (L[u] + 1 < L[v]) {
@@ -425,14 +425,13 @@ void PFS(int source, vector<int>& L, int& Lsize, int& s,
 }
 
 void deltaPFS(int source, int previous,
-              vector<int>& L, int& Lsize,
-              int& s, const vector<int>& lambda,
-              const vector<bool>& valid) {
+              vector<int>& L, const int Lsize,
+              int& s, const vector<bool>& valid) {
   int alphap = L[previous];
   int alphav = alphap - 1;
 
+  s = s + Lsize - (L[source] - alphav);
   L[source] = alphav;
-  s = s + Lsize;
 
   queue<int> Q;
   Q.push(source);
@@ -440,12 +439,6 @@ void deltaPFS(int source, int previous,
   while(!Q.empty()) {
     int u = Q.front();
     Q.pop();
-
-    if (lambda[u] == INT_MAX) {
-      s += (L[u] - alphav);
-    } else {
-      s -= (lambda[u] - L[u]);
-    }
 
     for (unsigned int i = 0; i < graph[u].size(); i++) {
       pair<int,int> f = graph[u][i];
@@ -455,12 +448,13 @@ void deltaPFS(int source, int previous,
         continue;
 
       if (L[u] + 1 < L[v]) {
+        s -= (L[v] - L[u] - 1);
         L[v] = L[u] + 1;
         Q.push(v);
       }
     }
   }
-  // Return (L, s, lambda)
+  // Return (L, s)
 }
 
 void shortestPath(int source, int minWeight, int tagId,
@@ -748,13 +742,13 @@ void findTopTags(string date, int k,
   }
 }
 
-void process(const int p, vector<int>& L, int& Lsize, int& s,
+void process(const int p, vector<int>& L, const int Lsize, int& s,
              priority_queue<pair<float,int>, vector<pair<float,int>>,
                             float_greater_then_numeric_lesser>& A,
-             const int k, const vector<bool>& valid,
-             vector<bool>& visitedDFS) {
+             const int k, vector<bool>& unvisitedDFS,
+             const vector<bool>& valid) {
   
-  visitedDFS[p] = true;
+  unvisitedDFS[p] = false;
 
   float centrality_p;
   if (s == 0)
@@ -774,39 +768,53 @@ void process(const int p, vector<int>& L, int& Lsize, int& s,
     }
   }
 
+  if (s == 0)
+    return;
+
+  // Pruning neighbors of p
+  if (A.size() >= (unsigned int) k) {
+    float upperBound = ((float) Lsize) / (s - Lsize);
+    //printf("upperbound = %f, min = %f\n", upperBound, A.top().first);
+    if (upperBound < A.top().first) {
+      // prune connected component
+      fill(unvisitedDFS.begin(), unvisitedDFS.end(), false);
+      //printf("pruned\n");
+      return;
+    }
+  }
+
   for (unsigned int i = 0; i < graph[p].size(); i++) {
     pair<int,int> q = graph[p][i];
     int v = q.first;
 
-    if (!valid[v] || visitedDFS[v])
+    if (!unvisitedDFS[v])
       continue;
 
     vector<int> Lnew = L;
-    int Lsizenew = Lsize;
     int snew = s;
 
-    deltaPFS(v, p, Lnew, Lsizenew, snew, L, valid);
-    process(v, Lnew, Lsizenew, snew, A, k, valid, visitedDFS);
+    deltaPFS(v, p, Lnew, Lsize, snew, valid);
+    process(v, Lnew, Lsize, snew, A, k, unvisitedDFS, valid);
   }
 }
 
 void topCentrality(int tagId, int k, priority_queue<pair<float,int>,
                                       vector<pair<float,int>>,
                                       float_greater_then_numeric_lesser>& A) {
-  vector<bool> visited = vector<bool>(nverts, true);
   vector<bool> valid = vector<bool>(nverts, false);
   
   for (unsigned int i = 0; i < nverts; i++) {
     if (isPersonMemberOfForumWithTag(i, tagId)) {
-      visited[i] = false;
       valid[i] = true;
     }
   }
 
+  vector<bool> unvisited = valid;
+
   for (unsigned int vIdx = 0; vIdx < nverts; vIdx++) {
     int startVertex = sortedVerts[vIdx];
 
-    if (visited[startVertex])
+    if (!unvisited[startVertex])
       continue;
 
     int s;
@@ -814,11 +822,11 @@ void topCentrality(int tagId, int k, priority_queue<pair<float,int>,
     int Lsize = 0;
 
     // Full BFS from the start vertex to build initial L, s
-    PFS(startVertex, L, Lsize, s, valid, visited);
+    PFS(startVertex, L, Lsize, s, unvisited);
 
     // Run delta-PFS's from successors in depth-first order
-    vector<bool> visitedDFS = vector<bool>(nverts, false);
-    process(startVertex, L, Lsize, s, A, k, valid, visitedDFS);
+    vector<bool> unvisitedDFS = valid;
+    process(startVertex, L, Lsize, s, A, k, unvisitedDFS, valid);
   }
 }
 
