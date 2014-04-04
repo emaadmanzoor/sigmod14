@@ -12,9 +12,14 @@
 #include <time.h>
 #include <thread>
 #include "ThreadPool.h"
+#include <cmath>
+#include <unistd.h>
 
 #define RESULT_BUF_SZ 1024
-#define MAX_NUM_THREADS 100
+#define MAX_NUM_THREADS 16
+
+#define NDEBUG
+#include <assert.h>
 
 using namespace std;
 
@@ -33,6 +38,7 @@ void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]);
 typedef pair<unsigned int, int> Edge;
 vector<vector<Edge>> graph;
 vector<vector<char>> birthday;
+vector<size_t> sortedVerts;
 
 // Query 3 locations
 vector< unordered_set<int> > personStudyCities; // Person->StudyCity
@@ -51,6 +57,33 @@ vector<int> sortedTagIds;
 unordered_map<int, unordered_set<int>> personTags;
 unsigned int nverts = 0;
 unsigned int nedges = 0;
+
+template<typename T>
+struct CompareIndicesByAnotherVectorValues {
+  const vector<T> *_values;
+
+  CompareIndicesByAnotherVectorValues(const vector<T>& values) {
+    _values = &values;
+  }
+
+  bool operator() (const int& a, const int& b) const {
+    return (*_values)[a] > (*_values)[b];
+  }
+};
+
+template <typename T>
+vector<size_t> sort_indexes(const vector<T> &v) {
+
+  // initialize original index locations
+  vector<size_t> idx(v.size());
+  for (size_t i = 0; i != idx.size(); ++i) idx[i] = i;
+
+  // sort indexes based on comparing values in v
+  sort(idx.begin(), idx.end(),
+       CompareIndicesByAnotherVectorValues<T>(v));
+
+  return idx;
+}
 
 void readTagNames(string tagNamesFilename) {
   FILE* tagNamesFile = fopen(tagNamesFilename.c_str(), "r");
@@ -353,27 +386,81 @@ void computeEdgeWeights(string commentCreatorFilename,
   }
 }
 
-float getClosenessCentrality(int personId, int tagId, vector<bool>& isValid) {
-  vector<int> shortestDists;
-  shortestPath(personId, -1, tagId, isValid, shortestDists);
-  
-  float numReachable = 0;
-  float sumOfShortestDists = 0;
-  for (unsigned int i = 0; i < shortestDists.size(); i++) {
-    if (shortestDists[i] != INT_MAX) {
-      numReachable++;
-      sumOfShortestDists += shortestDists[i];
-    }
-  }
-
-  if (numReachable == 1 || sumOfShortestDists == 0)
-    return 0.0;
-  else
-    return (numReachable - 1) * (numReachable - 1) / sumOfShortestDists;
-}
-
 bool isPersonMemberOfForumWithTag(int personId, int tagId) {
   return (personForumTags[personId].count(tagId) > 0);
+}
+
+void PFS(int source, vector<int>& L, int& Lsize, int& s,
+         const vector<bool>& valid, vector<bool>& visited) {
+  L[source] = 0;
+  Lsize = 1;
+
+  s = 0;
+
+  queue<int> Q;
+  Q.push(source);
+
+  while(!Q.empty()) {
+    int u = Q.front();
+    Q.pop();
+    visited[u] = true;
+
+    s = s + L[u];
+
+    for (unsigned int i = 0; i < graph[u].size(); i++) {
+      pair<int,int> f = graph[u][i];
+      int v = f.first;
+
+      if (!valid[v])
+        continue;
+
+      if (L[u] + 1 < L[v]) {
+        if (L[v] == INT_MAX)
+          Lsize++;
+        L[v] = L[u] + 1;
+        Q.push(v);
+      }
+    }
+  }
+}
+
+void deltaPFS(int source, int previous,
+              vector<int>& L, int& Lsize,
+              int& s, const vector<int>& lambda,
+              const vector<bool>& valid) {
+  int alphap = L[previous];
+  int alphav = alphap - 1;
+
+  L[source] = alphav;
+  s = s + Lsize;
+
+  queue<int> Q;
+  Q.push(source);
+
+  while(!Q.empty()) {
+    int u = Q.front();
+    Q.pop();
+
+    if (lambda[u] == INT_MAX) {
+      s += (L[u] - alphav);
+    } else {
+      s -= (lambda[u] - L[u]);
+    }
+
+    for (unsigned int i = 0; i < graph[u].size(); i++) {
+      pair<int,int> f = graph[u][i];
+      int v = f.first;
+
+      if (!valid[v])
+        continue;
+
+      if (L[u] + 1 < L[v]) {
+        L[v] = L[u] + 1;
+        Q.push(v);
+      }
+    }
+  }
+  // Return (L, s, lambda)
 }
 
 void shortestPath(int source, int minWeight, int tagId,
@@ -411,6 +498,12 @@ void constructGraph(string dataDir) {
   
   createEdges(personKnowsFile);
   
+  // Sort vertices by degree
+  vector<int> degrees = vector<int>(nverts);
+  for (unsigned int i = 0; i < nverts; i++)
+    degrees[i] = graph[i].size();
+  sortedVerts = sort_indexes(degrees);
+
   string commentCreatorFile = dataDir + "/comment_hasCreator_person.csv";
   string commentReplyFile = dataDir + "/comment_replyOf_comment.csv";
   computeEdgeWeights(commentCreatorFile, commentReplyFile);
@@ -581,19 +674,22 @@ bool numeric_greater_then_numeric_lesser(const pair< int, pair<int,int> >& lhs,
   }
 }
 
-bool float_greater_then_numeric_lesser(const pair< float, int >& lhs,
-                                       const pair< float, int >& rhs) {
-  if (lhs.first > rhs.first)
-    return true;
-  else if (lhs.first < rhs.first)
-    return false;
-  else {
-    if (lhs.second < rhs.second)
+
+struct float_greater_then_numeric_lesser {
+  bool operator() (const pair< float, int >& lhs,
+                   const pair< float, int >& rhs) {
+    if (fabs(lhs.first - rhs.first) < 0.0001) {
+      if (lhs.second < rhs.second)
+        return true;
+      else
+        return false;
+    } else if (lhs.first > rhs.first) {
       return true;
-    else
+    } else {
       return false;
+    }
   }
-}
+};
 
 void findTopTags(string date, int k,
                  priority_queue< pair<int,string>, vector< pair<int, string> >,
@@ -652,23 +748,78 @@ void findTopTags(string date, int k,
   }
 }
 
-void findTopCloseness(int tagId, vector< pair<float, int> >& closenessCentralities) {
+void process(const int p, vector<int>& L, int& Lsize, int& s,
+             priority_queue<pair<float,int>, vector<pair<float,int>>,
+                            float_greater_then_numeric_lesser>& A,
+             const int k, const vector<bool>& valid,
+             vector<bool>& visitedDFS) {
+  
+  visitedDFS[p] = true;
 
-  vector<bool> isValid = vector<bool>(nverts, false);
-  for (unsigned int i = 0; i < nverts; i++)
-    if (isPersonMemberOfForumWithTag(i, tagId))
-      isValid[i] = true;
-  
-  for (unsigned int personId = 0; personId < nverts; personId++) {
-    if (!isValid[personId])
-      continue;
-    float closenessCentrality = getClosenessCentrality(personId, tagId,
-                                                       isValid);
-    closenessCentralities.push_back(make_pair(closenessCentrality, personId));
+  float centrality_p;
+  if (s == 0)
+    centrality_p = 0.0;
+  else
+    centrality_p = ((float) Lsize) / s;
+
+  if (A.size() < (unsigned int) k) {
+    A.push(make_pair(centrality_p, p));
+  } else if (centrality_p > A.top().first) {
+    A.pop();
+    A.push(make_pair(centrality_p, p));
+  } else if (centrality_p == A.top().first) {
+    if (p < A.top().second) {
+      A.pop();
+      A.push(make_pair(centrality_p, p));
+    }
   }
+
+  for (unsigned int i = 0; i < graph[p].size(); i++) {
+    pair<int,int> q = graph[p][i];
+    int v = q.first;
+
+    if (!valid[v] || visitedDFS[v])
+      continue;
+
+    vector<int> Lnew = L;
+    int Lsizenew = Lsize;
+    int snew = s;
+
+    deltaPFS(v, p, Lnew, Lsizenew, snew, L, valid);
+    process(v, Lnew, Lsizenew, snew, A, k, valid, visitedDFS);
+  }
+}
+
+void topCentrality(int tagId, int k, priority_queue<pair<float,int>,
+                                      vector<pair<float,int>>,
+                                      float_greater_then_numeric_lesser>& A) {
+  vector<bool> visited = vector<bool>(nverts, true);
+  vector<bool> valid = vector<bool>(nverts, false);
   
-  sort(closenessCentralities.begin(), closenessCentralities.end(),
-       float_greater_then_numeric_lesser);
+  for (unsigned int i = 0; i < nverts; i++) {
+    if (isPersonMemberOfForumWithTag(i, tagId)) {
+      visited[i] = false;
+      valid[i] = true;
+    }
+  }
+
+  for (unsigned int vIdx = 0; vIdx < nverts; vIdx++) {
+    int startVertex = sortedVerts[vIdx];
+
+    if (visited[startVertex])
+      continue;
+
+    int s;
+    vector<int> L = vector<int>(nverts, INT_MAX);
+    int Lsize = 0;
+
+    // Full BFS from the start vertex to build initial L, s
+    PFS(startVertex, L, Lsize, s, valid, visited);
+
+    // Run delta-PFS's from successors in depth-first order
+    vector<bool> visitedDFS = vector<bool>(nverts, false);
+    process(startVertex, L, Lsize, s, A, k, valid, visitedDFS);
+  }
 }
 
 void
@@ -786,15 +937,28 @@ void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
 }
 
 void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]) {
-  vector< pair<float, int> > topcentral;
-  findTopCloseness(tagId, topcentral);
+  priority_queue<pair<float, int>, vector<pair<float,int>>,
+                 float_greater_then_numeric_lesser> topcentral;
+  topCentrality(tagId, k, topcentral);
+
+  vector<int> toprint;
+  vector<float> centralities;
+
+  while (topcentral.size() > 0) {
+    toprint.push_back(topcentral.top().second);
+    topcentral.pop();
+  }
+
+  int numtags = toprint.size();
+
   string r = "";
-  if (topcentral.size() > 0) {
-    r += to_string((long long) topcentral[0].second);
+  if (toprint.size() > 0) {
+    r += to_string((long long) toprint[numtags - 1]);
+    for (int i = numtags - 2; i >= numtags - k; i--) {
+      r += " " + to_string((long long) toprint[i]);
+    }
   }
-  for (unsigned int i = 1; i < (unsigned int) k && i < topcentral.size(); i++) {
-    r += " " + to_string((long long) topcentral[i].second);
-  }
+
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 }
 
