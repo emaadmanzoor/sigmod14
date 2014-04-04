@@ -16,7 +16,7 @@
 #include <unistd.h>
 
 #define RESULT_BUF_SZ 1024
-#define MAX_NUM_THREADS 16
+#define MAX_NUM_THREADS 100
 
 #define NDEBUG
 #include <assert.h>
