@@ -773,13 +773,42 @@ void process(const int p, vector<int>& L, const int Lsize, int& s,
 
   // Pruning neighbors of p
   if (A.size() >= (unsigned int) k) {
-    float upperBound = ((float) Lsize) / (s - Lsize);
-    //printf("upperbound = %f, min = %f\n", upperBound, A.top().first);
-    if (upperBound < A.top().first) {
-      // prune connected component
-      fill(unvisitedDFS.begin(), unvisitedDFS.end(), false);
-      //printf("pruned\n");
-      return;
+
+    vector<int> d = vector<int>(nverts, INT_MAX);
+    queue<int> Q;
+
+    Q.push(p);
+    d[p] = 0;
+    float minUpperBound = INT_MAX;
+
+    while(!Q.empty()) {
+      int u = Q.front();
+      Q.pop();
+
+      int sprime = s - d[u] * Lsize;
+      float cprime = ((float) Lsize) / sprime;
+      float diff = (float) cprime - A.top().first;
+
+      if (diff > minUpperBound || diff > -0.0001)
+        continue;
+
+      minUpperBound = diff;
+      bool pruneme = true;
+
+      for (unsigned int i = 0; i < graph[p].size(); i++) {
+        int v = graph[p][i].first;
+
+        if (unvisitedDFS[v])
+          pruneme = false;
+
+        if (d[u] + 1 < d[v]) {
+          d[v] = d[u] + 1;
+          Q.push(v);
+        }
+      }
+
+      if (pruneme)
+        unvisitedDFS[u] = false;
     }
   }
 
