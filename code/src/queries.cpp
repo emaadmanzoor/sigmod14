@@ -16,7 +16,8 @@
 #include <unistd.h>
 
 #define RESULT_BUF_SZ 1024
-#define MAX_NUM_THREADS 100
+#define MAX_NUM_THREADS 1
+#define EPSILON 0.000001
 
 #define NDEBUG
 #include <assert.h>
@@ -38,7 +39,7 @@ void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]);
 typedef pair<unsigned int, int> Edge;
 vector<vector<Edge>> graph;
 vector<vector<char>> birthday;
-vector<size_t> sortedVerts;
+//vector<int> sortedVerts;
 
 // Query 3 locations
 vector< unordered_set<int> > personStudyCities; // Person->StudyCity
@@ -72,17 +73,17 @@ struct CompareIndicesByAnotherVectorValues {
 };
 
 template <typename T>
-vector<size_t> sort_indexes(const vector<T> &v) {
+void sort_indexes(const vector<T> &v, vector<int>& idx) {
 
   // initialize original index locations
-  vector<size_t> idx(v.size());
-  for (size_t i = 0; i != idx.size(); ++i) idx[i] = i;
+  //vector<size_t> idx(v.size());
+  for (int i = 0; i != idx.size(); ++i) idx[i] = i;
 
   // sort indexes based on comparing values in v
   sort(idx.begin(), idx.end(),
        CompareIndicesByAnotherVectorValues<T>(v));
 
-  return idx;
+  //return idx;
 }
 
 void readTagNames(string tagNamesFilename) {
@@ -390,40 +391,6 @@ bool isPersonMemberOfForumWithTag(int personId, int tagId) {
   return (personForumTags[personId].count(tagId) > 0);
 }
 
-void PFS(int source, vector<int>& L, int& Lsize, int& s,
-         vector<bool>& unvisited) {
-  L[source] = 0;
-  Lsize = 1;
-
-  s = 0;
-
-  queue<int> Q;
-  Q.push(source);
-
-  while(!Q.empty()) {
-    int u = Q.front();
-    Q.pop();
-    unvisited[u] = false;
-
-    s = s + L[u];
-
-    for (unsigned int i = 0; i < graph[u].size(); i++) {
-      pair<int,int> f = graph[u][i];
-      int v = f.first;
-
-      if (!unvisited[v])
-        continue;
-
-      if (L[u] + 1 < L[v]) {
-        if (L[v] == INT_MAX)
-          Lsize++;
-        L[v] = L[u] + 1;
-        Q.push(v);
-      }
-    }
-  }
-}
-
 void deltaPFS(int source, int previous,
               vector<int>& L, const int Lsize,
               int& s, const vector<bool>& valid) {
@@ -474,6 +441,8 @@ void shortestPath(int source, int minWeight, int tagId,
       int v = f->first;
       if (f->second <= minWeight)
         continue;
+      //if (tagId > 0 && !isValid[v])
+      //  continue;
       if (tagId > 0 && !isValid[v])
         continue;
       if (d[u] + 1 < d[v]) {
@@ -493,10 +462,11 @@ void constructGraph(string dataDir) {
   createEdges(personKnowsFile);
   
   // Sort vertices by degree
-  vector<int> degrees = vector<int>(nverts);
+  /*vector<int> degrees = vector<int>(nverts);
   for (unsigned int i = 0; i < nverts; i++)
     degrees[i] = graph[i].size();
-  sortedVerts = sort_indexes(degrees);
+  vector<int> sortedVerts(nverts);
+  sort_indexes(degrees, sortedVerts);*/
 
   string commentCreatorFile = dataDir + "/comment_hasCreator_person.csv";
   string commentReplyFile = dataDir + "/comment_replyOf_comment.csv";
@@ -672,7 +642,7 @@ bool numeric_greater_then_numeric_lesser(const pair< int, pair<int,int> >& lhs,
 struct float_greater_then_numeric_lesser {
   bool operator() (const pair< float, int >& lhs,
                    const pair< float, int >& rhs) {
-    if (fabs(lhs.first - rhs.first) < 0.0001) {
+    if (fabs(lhs.first - rhs.first) < EPSILON) {
       if (lhs.second < rhs.second)
         return true;
       else
@@ -827,36 +797,307 @@ void process(const int p, vector<int>& L, const int Lsize, int& s,
   }
 }
 
-void topCentrality(int tagId, int k, priority_queue<pair<float,int>,
-                                      vector<pair<float,int>>,
-                                      float_greater_then_numeric_lesser>& A) {
-  vector<bool> valid = vector<bool>(nverts, false);
-  
-  for (unsigned int i = 0; i < nverts; i++) {
-    if (isPersonMemberOfForumWithTag(i, tagId)) {
-      valid[i] = true;
+void pushCentrality(float centrality, int p, int k,
+                    priority_queue<pair<float,int>,
+                                   vector<pair<float,int>>,
+                                   float_greater_then_numeric_lesser>& A) {
+  if (A.size() < (unsigned int) k) {
+    A.push(make_pair(centrality, p));
+  } else if (fabs(centrality - A.top().first) < EPSILON) {
+    if (p < A.top().second) {
+      A.pop();
+      A.push(make_pair(centrality, p));
+    }
+  } else if (centrality > A.top().first) {
+    A.pop();
+    A.push(make_pair(centrality, p));
+  }
+}
+
+void sharedBFS(int vIdx, const vector<int>& inv,
+               const vector<int>& rev, int& dsum,
+               vector<vector<int>>& D, const vector<bool>& valid) {
+
+  D[vIdx][vIdx] = 0;
+
+  queue<int> Q;
+  Q.push(vIdx);
+
+  int invSize = inv.size();
+
+  while(!Q.empty()) {
+    int u = Q.front();
+    Q.pop();
+
+    if (u != vIdx && D[u][u] != INT_MAX) {
+      // reuse results of BFS from u
+      for (int i = 0; i < invSize; i++) {
+        int D_u_i = D[u][i];
+        int D_vIdx_u = D[vIdx][u];
+        int D_vIdx_i = D[vIdx][i];
+        if ((D_u_i < INT_MAX) && (D[vIdx][u] < INT_MAX)) {
+          if (D_vIdx_u + D_u_i < D_vIdx_i)
+            D[vIdx][i] = D_vIdx_u + D_u_i;
+        }
+      }
+    } else {
+      for (unsigned int i = 0; i < graph[inv[u]].size(); i++) {
+        int vgraph = graph[inv[u]][i].first;
+
+        if (!valid[vgraph])
+          continue;
+
+        int v = rev[vgraph];
+
+        if (D[vIdx][u] + 1 < D[vIdx][v]) {
+          D[vIdx][v] = D[vIdx][u] + 1;
+          Q.push(v);
+        }
+      }
     }
   }
 
-  vector<bool> unvisited = valid;
+  dsum = 0;
+  for (unsigned int i = 0; i < D[vIdx].size(); i++)
+    if (D[vIdx][i] != INT_MAX)
+      dsum += D[vIdx][i];
+}
 
-  for (unsigned int vIdx = 0; vIdx < nverts; vIdx++) {
-    int startVertex = sortedVerts[vIdx];
+void BFS(int vIdx, const vector<int>& inv,
+         const vector<int>& rev, vector<bool>& visited,
+         vector<int>& cc, vector<int>& singletons,
+         int& dsum, vector<int>& D, const vector<bool>& valid) {
 
-    if (!unvisited[startVertex])
-      continue;
+  D[vIdx] = 0;
 
-    int s;
-    vector<int> L = vector<int>(nverts, INT_MAX);
-    int Lsize = 0;
+  queue<int> Q;
+  Q.push(vIdx);
 
-    // Full BFS from the start vertex to build initial L, s
-    PFS(startVertex, L, Lsize, s, unvisited);
+  while(!Q.empty()) {
+    int u = Q.front();
+    Q.pop();
 
-    // Run delta-PFS's from successors in depth-first order
-    vector<bool> unvisitedDFS = valid;
-    process(startVertex, L, Lsize, s, A, k, unvisitedDFS, valid);
+    visited[u] = true;     // To track connected components
+    dsum += D[u];   // Sum of distances from vIdx
+    cc.push_back(u);       // To track connected components
+
+    for (unsigned int i = 0; i < graph[inv[u]].size(); i++) {
+      int vgraph = graph[inv[u]][i].first;
+
+      if (!valid[vgraph])
+        continue;
+
+      int v = rev[vgraph];
+
+      if (D[v] == INT_MAX) {
+        D[v] = D[u] + 1;
+        Q.push(v);
+      }
+    }
   }
+
+  if (cc.size() <= 1) {
+    cc.pop_back();
+    singletons.push_back(vIdx);
+  }
+}
+
+void prune(int source, vector<bool>& pruned, float top, int ccSize,
+           const vector<int>& inv, const vector<int>& rev,
+           int dsum, const vector<bool>& valid) {
+  // BFS from source, pruning along the way
+  vector<int> d(inv.size(), INT_MAX);
+  queue<int> Q;
+
+  Q.push(source);
+  d[source] = 0;
+  
+  //printf("starting pruning from %d\n", inv[source]);
+  while (!Q.empty()) {
+    int u = Q.front();
+    Q.pop();
+
+    //printf("popped %d\n", inv[u]);
+
+    if (u != source) {
+      float upperBound = ((float) ccSize) / (dsum - (d[u] * ccSize));
+      //printf("ubound %d = %.10f dsum = %d ccSize = %d d[u] = %d min = %.10f\n", inv[u], upperBound, dsum,
+      //        dsum - d[u]*ccSize, d[u], top);
+
+      if ((upperBound - top) < -EPSILON) {
+        pruned[u] = true;
+      } else {
+        //printf("ubound too high, skipping adding nbors\n");
+        continue;
+      } 
+    }
+
+    float upperBoundNeighbors = ((float) ccSize) / 
+                                (dsum - ((d[u] + 1) * ccSize));
+    if ((upperBoundNeighbors - top) > -EPSILON) {
+      //printf("Upperbound neighbors = %.4f > top %.4f\n", upperBoundNeighbors, top);
+      continue;
+    }
+
+    int ugraph = inv[u];
+    for (unsigned int i = 0; i < graph[ugraph].size(); i++) {
+      int vgraph = graph[ugraph][i].first;
+
+      if (!valid[vgraph])
+        continue;
+
+      int v = rev[vgraph];
+
+      if (d[u] + 1 < d[v]) {
+        d[v] = d[u] + 1; 
+        Q.push(v);
+      }
+    }
+  } // while (pruning BFS)
+}
+
+void topCentrality(int tagId, int k, priority_queue<pair<float,int>,
+                                      vector<pair<float,int>>,
+                                      float_greater_then_numeric_lesser>& A) {
+  vector<bool> valid(nverts, false);
+  vector<int> inv; // validIdx -> graphIdx
+  vector<int> rev(nverts, -1);
+  for (unsigned int i = 0; i < nverts; i++) {
+    if (isPersonMemberOfForumWithTag(i, tagId)) {
+      valid[i] = true;
+      rev[i] = inv.size();
+      inv.push_back(i);
+    }
+  }
+
+  vector<vector<int>> D(inv.size(),
+                        vector<int>(inv.size(), INT_MAX)); // distances
+
+  // Run one BFS from a vertex in each connected component
+  vector<vector<int>> cc; // vertices in each connected comp
+  vector<int> singletons; // vertices with zero out degree
+  vector<int> dsums;      // sum of dists for cc start verts
+
+  vector<bool> visited(inv.size(), false);
+
+  int ccIdx = 0;
+  for (unsigned int i = 0; i < inv.size(); i++) {
+    if (visited[i])
+      continue;
+    
+    cc.push_back(vector<int>());
+    int dsum = 0;
+      
+    BFS(i, inv, rev, visited, cc[ccIdx], singletons, dsum, D[i], valid);
+
+    if (!cc[ccIdx].empty()) {
+      dsums.push_back(dsum);        
+      ccIdx++;
+    } else {
+      cc.pop_back();
+    }
+  }
+
+  // Sort connected components by size
+  vector<int> sortedCcIdx(cc.size());
+  for (unsigned int i = 0; i < cc.size(); i++)
+    sortedCcIdx[i] = i;
+
+  if (cc.size() > 1) {
+    vector<int> ccSizes(cc.size(), 0);
+    for (unsigned int i = 0; i < cc.size(); i++) {
+      ccSizes[i] = cc[i].size();
+    }
+    sort_indexes(ccSizes, sortedCcIdx);
+  }
+
+  // Compute centralities in each connected component
+  for (unsigned int i = 0; i < sortedCcIdx.size(); i++) {
+    int ccIdx = sortedCcIdx[i];
+    int ccSize = cc[ccIdx].size();
+
+    // Sort vertices in cc by degree
+    vector<int> ccDegrees(ccSize, 0);
+    for (int cci = 0; cci < ccSize; cci++) {
+      int degree = 0;
+      int graphv = inv[cc[ccIdx][cci]];
+      for (unsigned int i = 0; i < graph[graphv].size(); i++)
+        if (valid[graph[graphv][i].first])
+          degree++;
+      ccDegrees[cci] = degree;
+    }
+    
+    vector<int> sortedVertIdx(ccSize);
+    sort_indexes(ccDegrees, sortedVertIdx);
+
+    int startVertex = cc[ccIdx][sortedVertIdx[0]];
+    int dsum = dsums[ccIdx];
+
+    // Centrality of the start vertex is available
+    //float centrality = ((float) (ccSize - 1) * (ccSize - 1)) /
+    //                   ((inv.size() - 1) * dsum);
+    float centrality = ((float) ccSize) / dsum;
+    pushCentrality(centrality, inv[startVertex], k, A);
+    //printf("start centrality %d = %.10f dsum=%d\n", inv[startVertex], centrality, dsum);
+
+    // Run a shared BFS from every other vertex
+    vector<bool> pruned(inv.size(), false);
+    int dsumStore = dsum;
+    int topStore = A.top().first;
+
+    for (int j = 1; j < ccSize; j++) {
+      int sourceIdx = sortedVertIdx[j];
+      int source = cc[ccIdx][sourceIdx];
+      //if (source == startVertex)
+      //  continue;
+
+      //if (pruned[source]) {
+        //printf("pruned %d\n", inv[source]);
+        //continue;
+      //}
+      
+      int dsum = 0;
+      sharedBFS(source, inv, rev, dsum, D, valid);
+
+      // Push centrality
+      //float centrality = ((float) (ccSize - 1) * (ccSize - 1)) /
+      //                   ((inv.size() - 1) * dsum);
+      float centrality = ((float) ccSize) / dsum;
+      /*int degree = ccDegrees[sourceIdx];
+      printf("degree %d = %d\n", inv[source], degree);
+
+      printf("centrality %d = %.10f dsum=%d\n", inv[source], centrality, dsum);
+
+      int sumnbordegrees = 0;
+      for (int i = 0; i < graph[inv[source]].size(); i++) {
+        int nbor = rev[graph[inv[source]][i].first];
+        int ndegree = ccDegrees[nbor];
+        sumnbordegrees += ndegree;
+      }
+      int dsumubound = 2 * sumnbordegrees - degree;
+      printf("dsum lower bound = %d\n", dsumubound);
+*/
+      pushCentrality(centrality, inv[source], k, A);
+
+      /*
+      float newTop = A.top().first;
+
+      // Compute upper bound for the connected component
+      // after each shared BFS. Prune CC if possible. 
+      if ((A.size() >= (unsigned int) k) &&
+          ((newTop < topStore) || (dsum > dsumStore))) {
+
+        if (newTop < topStore)
+          topStore = newTop;
+        if (dsum > dsumStore)
+          dsumStore = dsum;
+
+        prune(source, pruned, A.top().first, ccSize,
+              inv, rev, dsum, valid);
+      }*/ // if (pruning)
+
+    } // shared BFS's
+  } // connected comps
 }
 
 void
