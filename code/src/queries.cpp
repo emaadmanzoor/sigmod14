@@ -14,7 +14,9 @@
 #include "ThreadPool.h"
 
 #define RESULT_BUF_SZ 1024
-#define MAX_NUM_THREADS 100
+#define MAX_NUM_THREADS 64
+#define QUERY4_NUM_THREADS 16
+#define INF8 100
 
 using namespace std;
 
@@ -353,23 +355,46 @@ void computeEdgeWeights(string commentCreatorFilename,
   }
 }
 
-float getClosenessCentrality(int personId, int tagId, vector<bool>& isValid) {
-  vector<int> shortestDists;
-  shortestPath(personId, -1, tagId, isValid, shortestDists);
-  
-  float numReachable = 0;
-  float sumOfShortestDists = 0;
-  for (unsigned int i = 0; i < shortestDists.size(); i++) {
-    if (shortestDists[i] != INT_MAX) {
-      numReachable++;
-      sumOfShortestDists += shortestDists[i];
+void shortestPathSum(int source, const vector<bool>& valid,
+                     int &nreachable, int &dsum) {
+  vector<uint8_t> d(nverts, INF8);
+
+  d[source] = 0;
+  dsum = 0;
+  nreachable = 0;
+
+  queue<int> Q;
+  Q.push(source);
+
+  while(!Q.empty()) {
+    int u = Q.front();
+    dsum += d[u];
+    nreachable++;
+
+    Q.pop();
+    for (unsigned int j = 0; j < graph[u].size(); j++) {
+      int v = graph[u][j].first;
+      if (!valid[v])
+        continue;
+      if (d[v] == INF8) {
+        d[v] = d[u] + 1;
+        Q.push(v);
+      }
     }
   }
+}
 
-  if (numReachable == 1 || sumOfShortestDists == 0)
-    return 0.0;
+
+void getClosenessCentrality(int personId, const vector<bool>& valid, pair<float,int> *p) {
+  int dsum, nreachable;
+  shortestPathSum(personId, valid, nreachable, dsum);
+
+  p->second = personId;
+
+  if (dsum == 0)
+    p->first = 0.0;
   else
-    return (numReachable - 1) * (numReachable - 1) / sumOfShortestDists;
+    p->first = (float) nreachable / dsum;
 }
 
 bool isPersonMemberOfForumWithTag(int personId, int tagId) {
@@ -652,19 +677,28 @@ void findTopTags(string date, int k,
   }
 }
 
-void findTopCloseness(int tagId, vector< pair<float, int> >& closenessCentralities) {
+void findTopCloseness(int tagId, vector<pair<float,int>>& closenessCentralities) {
 
-  vector<bool> isValid = vector<bool>(nverts, false);
-  for (unsigned int i = 0; i < nverts; i++)
-    if (isPersonMemberOfForumWithTag(i, tagId))
-      isValid[i] = true;
+  int nvalid = 0;
+  vector<bool> valid = vector<bool>(nverts, false);
+  for (unsigned int i = 0; i < nverts; i++) {
+    if (isPersonMemberOfForumWithTag(i, tagId)) {
+      valid[i] = true;
+      nvalid++;
+    }
+  }
   
-  for (unsigned int personId = 0; personId < nverts; personId++) {
-    if (!isValid[personId])
-      continue;
-    float closenessCentrality = getClosenessCentrality(personId, tagId,
-                                                       isValid);
-    closenessCentralities.push_back(make_pair(closenessCentrality, personId));
+  closenessCentralities.resize(nvalid);
+
+  {
+    ThreadPool pool(QUERY4_NUM_THREADS);
+
+    int bfsno = 0;
+    for (unsigned int personId = 0; personId < nverts; personId++) {
+      if (!valid[personId])
+        continue;
+      pool.enqueue(getClosenessCentrality, personId, valid, &closenessCentralities[bfsno++]);
+    }
   }
   
   sort(closenessCentralities.begin(), closenessCentralities.end(),
@@ -786,8 +820,10 @@ void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
 }
 
 void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]) {
-  vector< pair<float, int> > topcentral;
+  vector<pair<float,int>> topcentral;
+
   findTopCloseness(tagId, topcentral);
+
   string r = "";
   if (topcentral.size() > 0) {
     r += to_string((long long) topcentral[0].second);
