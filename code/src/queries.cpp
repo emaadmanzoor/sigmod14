@@ -12,6 +12,7 @@
 #include <time.h>
 #include <thread>
 #include "ThreadPool.h"
+#include <cstdint>
 #include <sys/time.h>
 
 // For C-style IO
@@ -24,7 +25,7 @@
 #define MAX_NUM_THREADS 8
 #define QUERY4_NUM_THREADS 8
 #define INF8 100
-#define NDEBUG
+//#define NDEBUG
 
 using namespace std;
 
@@ -39,9 +40,11 @@ void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]);
 void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]);
 
 // Graph
-typedef pair<unsigned int, int> Edge;
-vector<vector<Edge>> graph;
-vector<vector<char>> birthday;
+vector<string> birthday;
+
+// CSR graph
+vector<uint16_t> weights;
+vector<uint32_t> graph;
 
 // Query 3 locations
 vector< unordered_set<int> > personStudyCities; // Person->StudyCity
@@ -58,8 +61,10 @@ unordered_map<string, int> tagNameToId;
 unordered_map<int, vector<int>> tagPersons;
 vector<int> sortedTagIds;
 unordered_map<int, unordered_set<int>> personTags;
-unsigned int nverts = 0;
-unsigned int nedges = 0;
+uint8_t query4hops;
+
+uint32_t nverts = 0;
+uint32_t nedges = 0;
 
 double get_wall_time(){
   struct timeval time;
@@ -70,6 +75,28 @@ double get_wall_time(){
   return (double)time.tv_sec + (double)time.tv_usec * .000001;
 }
 
+// Returns an offset into the edges vector
+inline uint32_t startEdgeOffset(uint32_t v) {
+  return graph[v];
+}
+
+// Returns an offset into the edges vector
+inline uint32_t endEdgeOffset(uint32_t v) {
+  if (v == nverts - 1)
+    return nverts + nedges - 1;
+  else
+    return graph[v+1] - 1;
+}
+
+// Takes a graph offset, sets weight
+inline void setWeight(uint32_t offset, uint16_t weight) {
+  weights[offset - nverts] = weight;
+}
+
+inline uint16_t getWeight(uint32_t offset) {
+  return weights[offset - nverts];
+}
+
 void readTagNames(string tagNamesFilename) {
 
   char* buf;
@@ -77,8 +104,10 @@ void readTagNames(string tagNamesFilename) {
   struct stat fstatBuffer;
   int i = 0;
 
-  //double start; // for profiling
-  //start = get_wall_time();
+#ifndef NDEBUG
+  double start; // for profiling
+  start = get_wall_time();
+#endif
 
   int tagNamesFile = open(tagNamesFilename.c_str(), O_RDONLY);
   fstat(tagNamesFile, &fstatBuffer);
@@ -110,14 +139,13 @@ void readTagNames(string tagNamesFilename) {
   free(buf);
   close(tagNamesFile);
 
-  //printf("reading tags took %.4f\n", get_wall_time() - start);
-
-  //fclose(tagNamesFile);
+#ifndef NDEBUG
+  fprintf(stderr, "reading tags took %.4f\n", get_wall_time() - start);
+#endif
 }
 
 void readPersonForumTags(string personForumsFilename,
                          string forumTagsFilename) {
-  //unordered_map< int, vector<int> > forumTags;
   vector<vector<int>> forumTags;
   readForumTags(forumTagsFilename, forumTags);
   
@@ -150,7 +178,7 @@ void readPersonForumTags(string personForumsFilename,
       personForumTags.resize(personId+1);
 
     vector<int> tags = forumTags[forumId / 20];
-    for (unsigned int j = 0; j < tags.size(); j++)
+    for (uint32_t j = 0; j < tags.size(); j++)
       personForumTags[personId].insert(tags[j]);
 
     while(buf[i++] != '\n'); // skip line
@@ -408,10 +436,16 @@ void readPlaceNames(string placeNamesFilename) {
 }
 
 void createNodes(string personFilename) {
+#ifndef NDEBUG
+  double now = get_wall_time();
+#endif
+
   char* buf;
   int charsRead, numBytes;
   struct stat fstatBuffer;
   int i = 0;
+
+  vector<pair<uint32_t,string>> personBirthdays;
 
   int csvFile = open(personFilename.c_str(), O_RDONLY);
   // File format: id(0 to maxID)|...|...|...|YYYY-DD-MM|....
@@ -426,7 +460,7 @@ void createNodes(string personFilename) {
   while(buf[i++] != '\n'); // skip first line
 
   for (; i < charsRead;) {
-    int personId = buf[i] - '0';
+    uint32_t personId = buf[i] - '0';
     while (buf[++i] != '|')
       personId = personId * 10 + (buf[i] - '0');
 
@@ -435,28 +469,34 @@ void createNodes(string personFilename) {
     for (int j = 0; j < 3; j++)
       while(buf[++i] != '|');
 
-    char personBirthday[11] = {0};
+    string personBirthday(10, '\0');
     int j = 0;
     personBirthday[j++] = buf[++i];
     while (buf[++i] != '|')
       personBirthday[j++] = buf[i];
 
-    if (personId + 1 > (int) nverts)
-      nverts = personId + 1;
-    if (nverts > graph.size()) {
-      graph.resize(2 * nverts);
-      birthday.resize(2 * nverts);
-    }
-
-    birthday[personId] = vector<char>(10);
-    strcpy(&birthday[personId][0], personBirthday);
-    graph[personId] = vector<Edge>();
+    personBirthdays.push_back(make_pair(personId, personBirthday));
 
     while(buf[i++] != '\n'); // skip line
   }
 
-  graph.resize(nverts);
-  birthday.resize(nverts);
+  nverts = personBirthdays.size();
+  if (nverts == 1000)
+    query4hops = INF8;
+  else if (nverts == 10000)
+    query4hops = 3;
+  else
+    query4hops = 3;
+
+  sort(personBirthdays.begin(), personBirthdays.end());
+  birthday = vector<string>(nverts);
+
+  for (uint32_t i = 0; i < nverts; i++)
+    birthday[personBirthdays[i].first] = personBirthdays[i].second;
+
+#ifndef NDEBUG
+  fprintf(stderr, "Creating nodes took %.4f s\n", get_wall_time() - now);
+#endif
 
   free(buf);
   close(csvFile);
@@ -513,7 +553,7 @@ void assignPersonTags(string personTagsFilename) {
        greater< pair<int, int> >());
 
   sortedTagIds = vector<int>(tagIdAndNumPersons.size(), -1);
-  for (unsigned int i = 0; i < tagIdAndNumPersons.size(); i++) {
+  for (uint32_t i = 0; i < tagIdAndNumPersons.size(); i++) {
     sortedTagIds[i] = tagIdAndNumPersons[i].second;
   }
 }
@@ -523,6 +563,8 @@ void createEdges(string personKnowsFilename) {
   int charsRead, numBytes;
   struct stat fstatBuffer;
   int i = 0;
+
+  vector<pair<uint32_t,uint32_t>> sortedEdges;
 
   int personKnowsFile = open(personKnowsFilename.c_str(), O_RDONLY);
 
@@ -544,24 +586,30 @@ void createEdges(string personKnowsFilename) {
     while (buf[++i] != '\n')
       pid2 = pid2 * 10 + (buf[i] - '0');
 
-    graph[pid1].push_back(make_pair(pid2, 0));
+    sortedEdges.push_back(make_pair(pid1, pid2));
 
     // readBuffer[i] now points to \n
     ++i;
   }
 
+  sort(sortedEdges.begin(), sortedEdges.end());
+
+  nedges = sortedEdges.size();
+  graph = vector<uint32_t>(nverts + nedges, 0);
+
+  uint32_t currentSource = 0;
+  uint32_t currentOffset = 0;
+  while(currentSource < nverts) {
+    graph[currentSource] = currentOffset + nverts;
+    while(sortedEdges[currentOffset].first == currentSource) {
+      graph[currentOffset + nverts] = sortedEdges[currentOffset].second;
+      currentOffset++;
+    }
+    currentSource++;
+  }
+
   free(buf);
   close(personKnowsFile);
-}
-
-void incrementEdgeWeight(unsigned int u, unsigned int v) {
-  for (vector<Edge>::iterator e = graph[u].begin();
-       e != graph[u].end(); e++) {
-    if (e->first == v) {
-      e->second++;
-      break;
-    }
-  }
 }
 
 void readCommentCreators(string commentCreatorFilename,
@@ -601,7 +649,8 @@ void readCommentCreators(string commentCreatorFilename,
 }
 
 void readCommentReplies(string commentReplyFilename,
-                        const vector<int>& commentOwner) {
+                        const vector<int>& commentOwner,
+                        vector<pair<int,int>>& commentReplies) {
   // For file reading
   char* buf;
   int charsRead, numBytes;
@@ -628,7 +677,12 @@ void readCommentReplies(string commentReplyFilename,
     while (buf[++i] != '\n')
       cid2 = cid2 * 10 + (buf[i] - '0');
 
-    incrementEdgeWeight(commentOwner[cid1/10], commentOwner[cid2/10]);
+    int pid1 = commentOwner[cid1/10];
+    int pid2 = commentOwner[cid2/10];
+
+    if (pid1 != pid2) {
+      commentReplies.push_back(make_pair(pid1, pid2));
+    }
 
     // readBuffer[i] now points to \n
     ++i;
@@ -641,39 +695,83 @@ void readCommentReplies(string commentReplyFilename,
 void computeEdgeWeights(string commentCreatorFilename,
                         string commentReplyFilename) {
 
-  //double start; // for profiling
+#ifndef NDEBUG
+  double start; // for profiling
+#endif
 
-  //start = get_wall_time();
+#ifndef NDEBUG
+  start = get_wall_time();
+#endif
+
   vector<int> commentOwner;
   readCommentCreators(commentCreatorFilename, commentOwner);
-  //printf("Finished reading comment owner in %.4f s\n", get_wall_time() - start);
 
-  //start = get_wall_time();
-  readCommentReplies(commentReplyFilename, commentOwner);
-  //printf("Finished reading comment reply in %.4f s\n", get_wall_time() - start);
+#ifndef NDEBUG
+  fprintf(stderr, "Finished reading comment owner in %.4f s\n", get_wall_time() - start);
+#endif
 
-  //start = get_wall_time();
+#ifndef NDEBUG
+  start = get_wall_time();
+#endif
 
-  for (unsigned int u = 0; u < nverts; u++) {
-    for (vector<Edge>::iterator e = graph[u].begin();
-         e != graph[u].end(); e++) {
-      unsigned int v = e->first;
-      int minWeight = e->second;
-      for (vector<pair<unsigned int,int>>::iterator f = graph[v].begin();
-           f != graph[v].end(); f++) {
-        if (f->first == u) {
-          if (f->second < minWeight) {
-            minWeight = f->second;
+  vector<pair<int,int>> commentReplies;
+  readCommentReplies(commentReplyFilename, commentOwner, commentReplies);
+
+#ifndef NDEBUG
+  fprintf(stderr, "Finished reading comment reply in %.4f s\n", get_wall_time() - start);
+#endif
+
+#ifndef NDEBUG
+  start = get_wall_time();
+#endif
+
+  weights = vector<uint16_t>(nedges, 0);
+
+  for (uint32_t i = 0; i  < commentReplies.size(); i++) {
+    uint32_t source = commentReplies[i].first;
+    uint32_t dest = commentReplies[i].second;
+
+    uint32_t offset = startEdgeOffset(source);
+    while ((graph[offset] != dest) && offset <= endEdgeOffset(source))
+      offset++;
+
+    if (offset <= endEdgeOffset(source))
+      setWeight(offset, getWeight(offset) + 1);
+  }
+
+#ifndef NDEBUG
+  fprintf(stderr, "Finished setting edge weights in %.4f s\n", get_wall_time() - start);
+#endif
+
+#ifndef NDEBUG
+  start = get_wall_time();
+#endif
+
+  for (uint32_t u = 0; u < nverts; u++) {
+    for (uint32_t offset = startEdgeOffset(u);
+         offset <= endEdgeOffset(u); offset++) {
+      int v = graph[offset];
+
+      int minWeight = getWeight(offset);
+
+      for (uint32_t offset2 = startEdgeOffset(v);
+           offset2 < endEdgeOffset(v); offset2++) {
+        if (graph[offset2] == u) {
+          if (minWeight < getWeight(offset2)) {
+            setWeight(offset2, minWeight);
           } else {
-            f->second = minWeight;
+            minWeight = getWeight(offset2);
           }
         }
       }
-      e->second = minWeight;
+
+      setWeight(offset, minWeight);
     }
   }
 
-  //printf("Edge weight compute took %.4f\n", get_wall_time() - start);
+#ifndef NDEBUG
+  fprintf(stderr, "Edge weight compute took %.4f\n", get_wall_time() - start);
+#endif
 }
 
 void shortestPathSum(int source, const vector<bool>& valid,
@@ -687,22 +785,19 @@ void shortestPathSum(int source, const vector<bool>& valid,
   queue<int> Q;
   Q.push(source);
 
-  int n1s = 0;
-  int n2s = 0;
-
   while(!Q.empty()) {
     int u = Q.front();
     Q.pop();
     dsum += d[u];
     nreachable++;
 
-    if (d[u] > 3) {
+    if (d[u] > query4hops) {
       continue;
     }
 
-    unsigned int nnbors = graph[u].size();
-    for (unsigned int j = 0; j < nnbors; j++) {
-      int v = graph[u][j].first;
+    for (uint32_t offset = startEdgeOffset(u);
+         offset <= endEdgeOffset(u); offset++) {
+      int v = graph[offset];
       if (!valid[v])
         continue;
       if (d[v] == INF8) {
@@ -740,10 +835,14 @@ void shortestPath(int source, int minWeight,
   while(!Q.empty()) {
     int u = Q.front();
     Q.pop();
-    for (int j = 0; j < graph[u].size(); j++) {
-      int v = graph[u][j].first;
-      if (graph[u][j].second <= minWeight)
+
+    for (uint32_t offset = startEdgeOffset(u);
+         offset <= endEdgeOffset(u); offset++) {
+      int v = graph[offset];
+
+      if (getWeight(offset) <= minWeight)
         continue;
+
       if (d[v] == INF8) {
         d[v] = d[u] + 1;
         Q.push(v);
@@ -785,6 +884,7 @@ void constructGraph(string dataDir) {
   thread placeNamesThread(readPlaceNames, placeNameFile);
 
   createEdgesThread.join();
+
   string commentCreatorFile = dataDir + "/comment_hasCreator_person.csv";
   string commentReplyFile = dataDir + "/comment_replyOf_comment.csv";
   thread edgeWeightsThread(computeEdgeWeights, commentCreatorFile,
@@ -800,7 +900,7 @@ void constructGraph(string dataDir) {
 }
 
 bool isValidPersonLocation(int personId, vector<int> placeIds) {
-  for (unsigned int i = 0; i < placeIds.size(); i++) {
+  for (uint32_t i = 0; i < placeIds.size(); i++) {
     int placeId = placeIds[i];
 
     if (personInCity[personId] == placeId ||
@@ -832,25 +932,25 @@ bool isValidPersonLocation(int personId, vector<int> placeIds) {
 int findRange(int tagId, string date, vector<int>& validNodesForTag) {
   vector<bool> visited = vector<bool>(nverts, true);
 
-  for (unsigned int i = 0; i < validNodesForTag.size(); i++) {
+  for (uint32_t i = 0; i < validNodesForTag.size(); i++) {
     int validPersonId = validNodesForTag[i];
     visited[validPersonId] = false;
   }
 
   int maxSize = 0;
 
-  for (unsigned int x = 0; x < validNodesForTag.size(); x++) {
+  for (uint32_t x = 0; x < validNodesForTag.size(); x++) {
     int i = validNodesForTag[x];
     if (visited[i])
       continue;
     
     int currentSize = 0;
 
-    stack<unsigned int> s;
+    stack<uint32_t> s;
     s.push(i);
 
     while(!s.empty()) {
-      unsigned int u = s.top();
+      uint32_t u = s.top();
       s.pop(); 
 
       if (visited[u])
@@ -859,9 +959,10 @@ int findRange(int tagId, string date, vector<int>& validNodesForTag) {
       visited[u] = true;
       currentSize++;
 
-      for (vector<Edge>::iterator e = graph[u].begin();
-           e != graph[u].end(); e++) {
-        unsigned int v = e->first;
+      for (uint32_t offset = startEdgeOffset(u);
+           offset <= endEdgeOffset(u);
+           offset++) {
+        uint32_t v = graph[offset];
         if (!visited[v]) {
           s.push(v);
         }
@@ -963,11 +1064,9 @@ void findTopTags(string date, int k,
     string tagName = tagIdToName[tagId];
 
     vector<int> validNodesForTag;
-    for (unsigned int j = 0; j < tagPersons[tagId].size(); j++) {
+    for (uint32_t j = 0; j < tagPersons[tagId].size(); j++) {
       int personId = tagPersons[tagId][j];
-      string personBirthday = string(birthday[personId].begin(),
-                                     birthday[personId].end());
-      if (personBirthday >= date)
+      if (birthday[personId] >= date)
         validNodesForTag.push_back(personId);
     }
 
@@ -975,29 +1074,27 @@ void findTopTags(string date, int k,
     tagRanges.push(make_pair(range, tagName));
   }
 
-  for (unsigned int i = k; i < sortedTagIds.size(); i++) {
+  for (uint32_t i = k; i < sortedTagIds.size(); i++) {
     int tagId = sortedTagIds[i];
     string tagName = tagIdToName[tagId];
 
-    unsigned int currentMin = tagRanges.top().first;
+    uint32_t currentMin = tagRanges.top().first;
     string currentMinTag = tagRanges.top().second;
 
     if (tagPersons[tagId].size() < currentMin)
       break;
 
     vector<int> validNodesForTag;
-    for (unsigned int j = 0; j < tagPersons[tagId].size(); j++) {
+    for (uint32_t j = 0; j < tagPersons[tagId].size(); j++) {
       int personId = tagPersons[tagId][j];
-      string personBirthday = string(birthday[personId].begin(),
-                                     birthday[personId].end());
-      if (personBirthday >= date)
+      if (birthday[personId] >= date)
         validNodesForTag.push_back(personId);
     }
 
     if (validNodesForTag.size() < currentMin)
       continue;
 
-    unsigned int range = findRange(tagId, date, validNodesForTag);
+    uint32_t range = findRange(tagId, date, validNodesForTag);
 
     if (range > currentMin) {
       tagRanges.pop();
@@ -1015,7 +1112,7 @@ void findTopCloseness(int tagId, vector<pair<float,int>>& closenessCentralities)
 
   int nvalid = 0;
   vector<bool> valid = vector<bool>(nverts, false);
-  for (unsigned int i = 0; i < nverts; i++) {
+  for (uint32_t i = 0; i < nverts; i++) {
     if (isPersonMemberOfForumWithTag(i, tagId)) {
       valid[i] = true;
       nvalid++;
@@ -1028,7 +1125,7 @@ void findTopCloseness(int tagId, vector<pair<float,int>>& closenessCentralities)
     ThreadPool pool(QUERY4_NUM_THREADS);
 
     int bfsno = 0;
-    for (unsigned int personId = 0; personId < nverts; personId++) {
+    for (uint32_t personId = 0; personId < nverts; personId++) {
       if (!valid[personId])
         continue;
       pool.enqueue(getClosenessCentrality, personId, valid, &closenessCentralities[bfsno++]);
@@ -1041,16 +1138,16 @@ void findTopCloseness(int tagId, vector<pair<float,int>>& closenessCentralities)
 
 void
 findTopPairs(int maxHops, vector<int> placeIds,
-             vector< pair< int, pair<unsigned int, unsigned int> > >& candidates) {
+             vector< pair< int, pair<uint32_t, unsigned int> > >& candidates) {
 
   vector<bool> isValid = vector<bool>(nverts, false);
-  for (unsigned int i = 0; i < nverts; i++) {
+  for (uint32_t i = 0; i < nverts; i++) {
     if (isValidPersonLocation(i, placeIds)) {
       isValid[i] = true;
     }
   }
 
-  for (unsigned int i = 0; i < nverts; i++) {
+  for (uint32_t i = 0; i < nverts; i++) {
     // Start a h-hop DFS from node i
     if (!isValidPersonLocation(i, placeIds))
       continue;
@@ -1059,12 +1156,12 @@ findTopPairs(int maxHops, vector<int> placeIds,
     vector<int> numHops = vector<int>(nverts, INT_MAX);
     vector<bool> isCandidate = vector<bool>(nverts, false);
 
-    stack<unsigned int> s;
+    stack<uint32_t> s;
     s.push(i);
     numHops[i] = 0;
 
     while(!s.empty()) {
-      unsigned int u = s.top();
+      uint32_t u = s.top();
       s.pop();
 
       if (visited[u])
@@ -1084,9 +1181,9 @@ findTopPairs(int maxHops, vector<int> placeIds,
 
       visited[u] = true;
 
-      for (vector<Edge>::iterator e = graph[u].begin();
-           e != graph[u].end(); e++) {
-        unsigned int v = e->first;
+      for (uint32_t offset = startEdgeOffset(u);
+           offset <= endEdgeOffset(u); offset++) {
+        uint32_t v = graph[offset];
 
         if (!visited[v]) {
           s.push(v);
@@ -1103,6 +1200,10 @@ findTopPairs(int maxHops, vector<int> placeIds,
 
 void solveQuery1(int source, int dest, int minWeight,
                  char result[RESULT_BUF_SZ]) {
+/*#ifndef NDEBUG
+  double now = get_wall_time();
+#endif*/
+
   vector<uint8_t> shortestDists(nverts, INF8);
   shortestPath(source, minWeight, shortestDists);
   if (shortestDists[dest] == INF8) {
@@ -1110,9 +1211,17 @@ void solveQuery1(int source, int dest, int minWeight,
   } else {
     snprintf(result, RESULT_BUF_SZ, "%d", shortestDists[dest]);
   }
+
+/*#ifndef NDEBUG
+  fprintf(stderr, "Query 1 took %.4f s\n", get_wall_time() - now);
+#endif*/
 }
 
 void solveQuery2(int k, string date, char result[RESULT_BUF_SZ]) {
+#ifndef NDEBUG
+  double now = get_wall_time();
+#endif
+
   priority_queue< pair<int,string>, vector< pair<int, string> >,
    numeric_greater_then_lexico_lesser > toptags;
   findTopTags(date, k, toptags);
@@ -1134,10 +1243,18 @@ void solveQuery2(int k, string date, char result[RESULT_BUF_SZ]) {
   }
 
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
+
+#ifndef NDEBUG
+  fprintf(stderr, "Query 2 took %.4f s\n", get_wall_time() - now);
+#endif
 }
 
 void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
-  vector< pair<int, pair<unsigned int, unsigned int> > >
+#ifndef NDEBUG
+  double now = get_wall_time();
+#endif
+
+  vector< pair<int, pair<uint32_t, unsigned int> > >
     toppairs;
   findTopPairs(h, placeNameToId[placeName], toppairs);
   string r = "";
@@ -1145,14 +1262,22 @@ void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
     r += to_string((long long) toppairs[0].second.first) + "|" +
          to_string((long long) toppairs[0].second.second);
   }
-  for (unsigned int i = 1; i < (unsigned int) k && i < toppairs.size(); i++) {
+  for (uint32_t i = 1; i < (unsigned int) k && i < toppairs.size(); i++) {
     r += " " + to_string((long long) toppairs[i].second.first) + "|" +
          to_string((long long) toppairs[i].second.second);
   }
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
+
+#ifndef NDEBUG
+  fprintf(stderr, "Query 3 took %.4f s\n", get_wall_time() - now);
+#endif
 }
 
 void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]) {
+#ifndef NDEBUG
+  double now = get_wall_time();
+#endif
+
   vector<pair<float,int>> topcentral;
 
   findTopCloseness(tagId, topcentral);
@@ -1161,10 +1286,14 @@ void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]) {
   if (topcentral.size() > 0) {
     r += to_string((long long) topcentral[0].second);
   }
-  for (unsigned int i = 1; i < (unsigned int) k && i < topcentral.size(); i++) {
+  for (uint32_t i = 1; i < (unsigned int) k && i < topcentral.size(); i++) {
     r += " " + to_string((long long) topcentral[i].second);
   }
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
+
+#ifndef NDEBUG
+  fprintf(stderr, "Query 4 took %.4f s\n", get_wall_time() - now);
+#endif
 }
 
 void solveQueries(string queryFilename) {
@@ -1231,7 +1360,7 @@ void solveQueries(string queryFilename) {
   }
   fclose(queryFile);
 
-  for (unsigned int i = 0; i < mapThreadToQueryType.size();
+  for (uint32_t i = 0; i < mapThreadToQueryType.size();
        ++i) {
     int queryType = mapThreadToQueryType[i];
     const char* result = (resultQueues[queryType-1]).front();
@@ -1249,10 +1378,8 @@ int main(int argc, char* argv[]) {
   }
 
   string dataDir = argv[1];
-  double now = get_wall_time();
   constructGraph(dataDir);
 
   string queryFile = argv[2];
-  now = get_wall_time();
   solveQueries(queryFile);
 }
