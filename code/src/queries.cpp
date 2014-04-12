@@ -1063,20 +1063,20 @@ void topCentrality(int tagId, int k, priority_queue<pair<float,int>,
       //float centrality = ((float) (ccSize - 1) * (ccSize - 1)) /
       //                   ((inv.size() - 1) * dsum);
       float centrality = ((float) ccSize) / dsum;
-      /*int degree = ccDegrees[sourceIdx];
-      printf("degree %d = %d\n", inv[source], degree);
+      int degree = ccDegrees[sourceIdx];
+      //printf("degree %d = %d\n", inv[source], degree);
 
-      printf("centrality %d = %.10f dsum=%d\n", inv[source], centrality, dsum);
-
-      int sumnbordegrees = 0;
+      /*int sumnbordegrees = 0;
       for (int i = 0; i < graph[inv[source]].size(); i++) {
         int nbor = rev[graph[inv[source]][i].first];
         int ndegree = ccDegrees[nbor];
         sumnbordegrees += ndegree;
-      }
-      int dsumubound = 2 * sumnbordegrees - degree;
-      printf("dsum lower bound = %d\n", dsumubound);
-*/
+      }*/
+    
+      printf("%d\t%.10f\t%d\n", degree, centrality, dsum);
+      //int dsumubound = 2 * sumnbordegrees - degree;
+      //printf("dsum lower bound = %d\n", dsumubound);
+
       pushCentrality(centrality, inv[source], k, A);
 
       /*
