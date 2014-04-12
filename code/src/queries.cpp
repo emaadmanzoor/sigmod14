@@ -82,19 +82,16 @@ inline uint32_t startEdgeOffset(uint32_t v) {
 
 // Returns an offset into the edges vector
 inline uint32_t endEdgeOffset(uint32_t v) {
-  if (v == nverts - 1)
-    return nverts + nedges - 1;
-  else
-    return graph[v+1] - 1;
+  return graph[v+1] - 1;
 }
 
 // Takes a graph offset, sets weight
 inline void setWeight(uint32_t offset, uint16_t weight) {
-  weights[offset - nverts] = weight;
+  weights[offset - nverts - 1] = weight;
 }
 
 inline uint16_t getWeight(uint32_t offset) {
-  return weights[offset - nverts];
+  return weights[offset - nverts - 1];
 }
 
 void readTagNames(string tagNamesFilename) {
@@ -595,14 +592,16 @@ void createEdges(string personKnowsFilename) {
   sort(sortedEdges.begin(), sortedEdges.end());
 
   nedges = sortedEdges.size();
-  graph = vector<uint32_t>(nverts + nedges, 0);
+  graph = vector<uint32_t>(nverts + 1 + nedges, 0);
+
+  graph[nverts] = nverts + nedges + 1; // sentinel
 
   uint32_t currentSource = 0;
   uint32_t currentOffset = 0;
   while(currentSource < nverts) {
-    graph[currentSource] = currentOffset + nverts;
+    graph[currentSource] = currentOffset + nverts + 1;
     while(sortedEdges[currentOffset].first == currentSource) {
-      graph[currentOffset + nverts] = sortedEdges[currentOffset].second;
+      graph[currentOffset + nverts + 1] = sortedEdges[currentOffset].second;
       currentOffset++;
     }
     currentSource++;
