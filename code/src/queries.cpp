@@ -12,19 +12,26 @@
 #include <time.h>
 #include <thread>
 #include "ThreadPool.h"
+#include <sys/time.h>
+
+// For C-style IO
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define RESULT_BUF_SZ 1024
-#define MAX_NUM_THREADS 64
-#define QUERY4_NUM_THREADS 16
+#define MAX_NUM_THREADS 8
+#define QUERY4_NUM_THREADS 8
 #define INF8 100
+#define NDEBUG
 
 using namespace std;
 
 // Function prototypes
-void shortestPath(int source, int minWeight, int tagId, vector<bool>& isValid,
-                  vector<int>& d);
+void shortestPath(int source, int minWeight, vector<uint8_t>& d);
 void readForumTags(string forumTagsFile,
-                   unordered_map< int, vector<int> >& forumTags);
+                   vector<vector<int>>& forumTags);
 void solveQuery1(int source, int dest, int minWeight,
                  char result[RESULT_BUF_SZ]);
 void solveQuery2(int k, string date, char result[RESULT_BUF_SZ]);
@@ -54,72 +61,183 @@ unordered_map<int, unordered_set<int>> personTags;
 unsigned int nverts = 0;
 unsigned int nedges = 0;
 
+double get_wall_time(){
+  struct timeval time;
+  if (gettimeofday(&time,NULL)){
+      //  Handle error
+      return 0;
+  }
+  return (double)time.tv_sec + (double)time.tv_usec * .000001;
+}
+
 void readTagNames(string tagNamesFilename) {
-  FILE* tagNamesFile = fopen(tagNamesFilename.c_str(), "r");
 
-  char tagName[120] = {0};
-  int tagId;
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
 
-  fscanf(tagNamesFile, "%*[^\n]\n");
-  while (fscanf(tagNamesFile, "%d|%[^|]|%*[^\n]\n", &tagId, tagName) != EOF) {
-    tagIdToName[tagId] = string(tagName);
-    tagNameToId[string(tagName)] = tagId;
+  //double start; // for profiling
+  //start = get_wall_time();
+
+  int tagNamesFile = open(tagNamesFilename.c_str(), O_RDONLY);
+  fstat(tagNamesFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
+
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(tagNamesFile, buf, numBytes);
+
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int tagId = buf[i] - '0';
+    while (buf[++i] != '|')
+      tagId = 10 * tagId + (buf[i] - '0');
+
+    char tagName[120] = {0};
+    int j = 0;
+    tagName[j++] = buf[++i];
+    while (buf[++i] != '|')
+      tagName[j++] = buf[i];
+
+    string tagNameStr = string(tagName);
+    tagIdToName[tagId] = tagNameStr;
+    tagNameToId[tagNameStr] = tagId;
+
+    while(buf[i++] != '\n'); // skip rest of line
   }
 
-  fclose(tagNamesFile);
+  free(buf);
+  close(tagNamesFile);
+
+  //printf("reading tags took %.4f\n", get_wall_time() - start);
+
+  //fclose(tagNamesFile);
 }
 
 void readPersonForumTags(string personForumsFilename,
                          string forumTagsFilename) {
-  unordered_map< int, vector<int> > forumTags;
+  //unordered_map< int, vector<int> > forumTags;
+  vector<vector<int>> forumTags;
   readForumTags(forumTagsFilename, forumTags);
   
-  FILE* personForumsFile = fopen(personForumsFilename.c_str(), "r");
-  unsigned int forumId, personId;
+  // For file reading
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
 
-  fscanf(personForumsFile, "%*[^\n]\n");
+  int personForumsFile = open(personForumsFilename.c_str(), O_RDONLY);
 
-  while(fscanf(personForumsFile, "%d|%d|%*[^\n]\n",
-        &forumId, &personId) != EOF) {
+  fstat(personForumsFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
 
-    if (personForumTags.size() < personId+1)
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(personForumsFile, buf, numBytes);
+
+  int i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int forumId = buf[i] - '0';
+    while (buf[++i] != '|')
+      forumId = forumId * 10 + (buf[i] - '0');
+
+    int personId = buf[++i] - '0';
+    while (buf[++i] != '|')
+      personId = personId * 10 + (buf[i] - '0');
+
+    if ((int) personForumTags.size() < personId+1)
       personForumTags.resize(personId+1);
 
-    vector<int> tags = forumTags[forumId];
-    for (unsigned int i = 0; i < tags.size(); i++)
-      personForumTags[personId].insert(tags[i]);
+    vector<int> tags = forumTags[forumId / 20];
+    for (unsigned int j = 0; j < tags.size(); j++)
+      personForumTags[personId].insert(tags[j]);
+
+    while(buf[i++] != '\n'); // skip line
   }
 
-  fclose(personForumsFile);
+  free(buf);
+  close(personForumsFile);
 }
 
 void
 readForumTags(string forumTagsFilename,
-              unordered_map< int, vector<int> >& forumTags) {
+              vector<vector<int>>& forumTags) {
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
 
-  FILE* forumTagsFile = fopen(forumTagsFilename.c_str(), "r");
-  int forumId, tagId;
+  int forumId = -1;
 
-  fscanf(forumTagsFile, "%*[^\n]\n");
+  int forumTagsFile = open(forumTagsFilename.c_str(), O_RDONLY);
 
-  while(fscanf(forumTagsFile, "%d|%d\n", &forumId, &tagId) != EOF) {
+  fstat(forumTagsFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
+
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(forumTagsFile, buf, numBytes);
+
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    forumId = buf[i] - '0';
+    while (buf[++i] != '|')
+      forumId = forumId * 10 + (buf[i] - '0');
+
+    forumId = forumId / 20;
+
+    int tagId = buf[++i] - '0';
+    while (buf[++i] != '\n')
+      tagId = tagId * 10 + (buf[i] - '0');
+
+    if ((int) forumTags.size() < forumId + 1) {
+      forumTags.resize(2 * (forumId + 1));
+    }
     forumTags[forumId].push_back(tagId);
+
+    // readBuffer[i] now points to \n
+    ++i;
   }
 
-  fclose(forumTagsFile);
+  free(buf);
+  close(forumTagsFile);
+
+  forumTags.resize(forumId + 1);
 }
 
 void readCsvToMap(vector< unordered_set<int> >& map,
                   string csvFilename,
+                  string idxLabel, string valLabel,
                   int idxDivider, int valDivider,
                   const vector<int>& transformedVal) {
 
-  FILE* csvFile = fopen(csvFilename.c_str(), "r");
-  int idx, val;
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
 
-  fscanf(csvFile, "%*[^\n]\n");
+  int csvFile = open(csvFilename.c_str(), O_RDONLY);
+  
+  fstat(csvFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
 
-  while(fscanf(csvFile, "%d|%d%*[^\n]\n", &idx, &val) != EOF) {
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(csvFile, buf, numBytes);
+
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int idx = buf[i] - '0';
+    while (buf[++i] != '|')
+      idx = idx * 10 + (buf[i] - '0');
+
+    int val = buf[++i] - '0';
+    while (buf[++i] != '|')
+      val = val * 10 + (buf[i] - '0');
+
     idx /= idxDivider;
     val /= valDivider;
 
@@ -128,55 +246,89 @@ void readCsvToMap(vector< unordered_set<int> >& map,
     } else {
       map[idx].insert(val);
     }
+
+    while(buf[i++] != '\n'); // skip line
   }
 
-  fclose(csvFile);
+  free(buf);
+  close(csvFile);
 }
 
 void readCsvToVector(string csvFilename,
                      vector<int>& map,
+                     string idxLabel, string valLabel,
                      int idxDivider, int valDivider,
                      int vectorSize, const vector<int>& transformedVal) {
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
+
+  int csvFile = open(csvFilename.c_str(), O_RDONLY);
+
   if (vectorSize > 0)
     map = vector<int>(vectorSize, -1);
 
-  FILE* csvFile = fopen(csvFilename.c_str(), "r");
-  unsigned int idx, val;
+  fstat(csvFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
 
-  fscanf(csvFile, "%*[^\n]\n");
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(csvFile, buf, numBytes);
 
-  while(fscanf(csvFile, "%d|%d%*[^\n]\n", &idx, &val) != EOF) {
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int idx = buf[i] - '0';
+    while (buf[++i] != '|')
+      idx = idx * 10 + (buf[i] - '0');
+
+    int val = buf[++i] - '0';
+
+    i++;
+    while ((buf[i] != '|') && (buf[i] != '\n')) {
+      val = val * 10 + (buf[i] - '0');
+      i++;
+    }
+
     idx /= idxDivider;
     val /= valDivider;
 
-    if (idx+1 > map.size())
+    if (idx+1 > (int) map.size())
       map.resize(idx+1, -1);
- 
+
     if (transformedVal.size() > 0) {
       map[idx] = transformedVal[val];
     } else {
       map[idx] = val;
     }
+
+    while(buf[i++] != '\n'); // skip line
   }
   
-  fclose(csvFile);
+  free(buf);
+  close(csvFile);
 }
 
 void readCsvToVector(string csvFile,
                      vector<int>& map,
+                     string idxLabel, string valLabel,
                      int idxDivider, int valDivider,
                      int vectorSize) {
   vector<int> vec;
   return readCsvToVector(csvFile, map,
+                         idxLabel, valLabel,
                          idxDivider, valDivider,
                          vectorSize, vec);
 }
 
 void readCsvToVector(string csvFile,
                      vector<int>& map,
+                     string idxLabel, string valLabel,
                      int idxDivider, int valDivider) {
   int vectorSize = -1;
   return readCsvToVector(csvFile, map,
+                         idxLabel, valLabel,
                          idxDivider, valDivider,
                          vectorSize);
 }
@@ -188,20 +340,24 @@ void readPersonLocations(string organizationLocatedInFile,
   vector<int> orgLocation;
   readCsvToVector(organizationLocatedInFile,
                   orgLocation,
+                  "Organisation.id", "Place.id",
                   10, 1);
   personStudyCities = vector< unordered_set<int> >(nverts);
   readCsvToMap(personStudyCities,
                personStudyAtFile,
+               "Person.id", "Organisation.id",
                1, 10,
                orgLocation);
   personWorkCountries = vector< unordered_set<int> >(nverts);
   readCsvToMap(personWorkCountries,
                personWorkAtFile,
+               "Person.id", "Organisation.id",
                1, 10,
                orgLocation);
   personInCity = vector<int>(nverts);
   readCsvToVector(personInCityFile,
                   personInCity,
+                  "Person.id", "Place.id",
                   1, 1,
                   nverts);
 }
@@ -210,63 +366,137 @@ void readParentLocations(string parentLocationFile) {
   parentLocation = vector<int>();
   readCsvToVector(parentLocationFile,
                   parentLocation,
+                  "Place.id", "Place.id",
                   1, 1);
 }
 
 void readPlaceNames(string placeNamesFilename) {
-  FILE* placeNamesFile = fopen(placeNamesFilename.c_str(), "r");
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
 
-  char placeName[100] = {0};
-  int placeId;
+  int csvFile = open(placeNamesFilename.c_str(), O_RDONLY);
 
-  fscanf(placeNamesFile, "%*[^\n]\n");
-  while (fscanf(placeNamesFile, "%d|%[^|]|%*[^\n]\n",
-                &placeId, placeName) != EOF) {
+  fstat(csvFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
+
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(csvFile, buf, numBytes);
+
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int placeId = buf[i] - '0';
+    while (buf[++i] != '|')
+      placeId = placeId * 10 + (buf[i] - '0');
+
+    char placeName[100] = {0};
+    int j = 0;
+    placeName[j++] = buf[++i];
+    while (buf[++i] != '|')
+      placeName[j++] = buf[i];
+
     placeNameToId[placeName].push_back(placeId);
+
+    while(buf[i++] != '\n'); // skip line
   }
 
-  fclose(placeNamesFile);
+  free(buf);
+  close(csvFile);
 }
 
 void createNodes(string personFilename) {
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
+
+  int csvFile = open(personFilename.c_str(), O_RDONLY);
   // File format: id(0 to maxID)|...|...|...|YYYY-DD-MM|....
-  FILE* personFile = fopen(personFilename.c_str(), "r");
 
-  char personBirthday[11] = {0};
-  unsigned int personId;
+  fstat(csvFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
 
-  fscanf(personFile, "%*[^\n]\n");
-  while (fscanf(personFile, "%d|%*[^|]|%*[^|]|%*[^|]|%10s|%*[^\n]\n",
-                &personId, personBirthday) != EOF) {
-    
-    if (personId + 1 > nverts)
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(csvFile, buf, numBytes);
+
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int personId = buf[i] - '0';
+    while (buf[++i] != '|')
+      personId = personId * 10 + (buf[i] - '0');
+
+    // buf[i] = '|' now
+    // skip forward 3 columns
+    for (int j = 0; j < 3; j++)
+      while(buf[++i] != '|');
+
+    char personBirthday[11] = {0};
+    int j = 0;
+    personBirthday[j++] = buf[++i];
+    while (buf[++i] != '|')
+      personBirthday[j++] = buf[i];
+
+    if (personId + 1 > (int) nverts)
       nverts = personId + 1;
     if (nverts > graph.size()) {
-      graph.resize(nverts);
-      birthday.resize(nverts);
-    } 
+      graph.resize(2 * nverts);
+      birthday.resize(2 * nverts);
+    }
 
     birthday[personId] = vector<char>(10);
     strcpy(&birthday[personId][0], personBirthday);
-    
     graph[personId] = vector<Edge>();
+
+    while(buf[i++] != '\n'); // skip line
   }
 
-  fclose(personFile);
+  graph.resize(nverts);
+  birthday.resize(nverts);
+
+  free(buf);
+  close(csvFile);
 }
 
 void assignPersonTags(string personTagsFilename) {
-  FILE* personTagsFile = fopen(personTagsFilename.c_str(), "r");
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
 
-  int personId, tagId;
+  int personTagsFile = open(personTagsFilename.c_str(), O_RDONLY);
 
-  fscanf(personTagsFile, "%*[^\n]\n");
-  while (fscanf(personTagsFile, "%d|%d\n", &personId, &tagId) != EOF) {
+  fstat(personTagsFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
+
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(personTagsFile, buf, numBytes);
+
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int personId = buf[i] - '0';
+    while (buf[++i] != '|')
+      personId = personId * 10 + (buf[i] - '0');
+
+    int tagId = buf[++i] - '0';
+    while (buf[++i] != '\n')
+      tagId = tagId * 10 + (buf[i] - '0');
+
     tagPersons[tagId].push_back(personId);
     personTags[personId].insert(tagId);
+
+    // readBuffer[i] now points to \n
+    ++i;
   }
 
-  fclose(personTagsFile);
+  free(buf);
+  close(personTagsFile);
 
   vector< pair<int, int> > tagIdAndNumPersons
     = vector< pair<int, int> >(tagPersons.size());
@@ -289,16 +519,39 @@ void assignPersonTags(string personTagsFilename) {
 }
 
 void createEdges(string personKnowsFilename) {
-  FILE* personKnowsFile = fopen(personKnowsFilename.c_str(), "r");
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
 
-  unsigned int u, v;
+  int personKnowsFile = open(personKnowsFilename.c_str(), O_RDONLY);
 
-  fscanf(personKnowsFile, "%*[^\n]\n");
-  while (fscanf(personKnowsFile, "%d|%d\n", &u, &v) != EOF) {
-    graph[u].push_back(make_pair(v, 0));
+  fstat(personKnowsFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
+
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(personKnowsFile, buf, numBytes);
+
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int pid1 = buf[i] - '0';
+    while (buf[++i] != '|')
+      pid1 = pid1 * 10 + (buf[i] - '0');
+
+    int pid2 = buf[++i] - '0';
+    while (buf[++i] != '\n')
+      pid2 = pid2 * 10 + (buf[i] - '0');
+
+    graph[pid1].push_back(make_pair(pid2, 0));
+
+    // readBuffer[i] now points to \n
+    ++i;
   }
 
-  fclose(personKnowsFile);
+  free(buf);
+  close(personKnowsFile);
 }
 
 void incrementEdgeWeight(unsigned int u, unsigned int v) {
@@ -311,29 +564,95 @@ void incrementEdgeWeight(unsigned int u, unsigned int v) {
   }
 }
 
+void readCommentCreators(string commentCreatorFilename,
+                         vector<int>& commentOwner) {
+  // For file reading
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
+
+  // For this file
+  int commentCreatorFile = open(commentCreatorFilename.c_str(), O_RDONLY);
+
+  fstat(commentCreatorFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
+
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(commentCreatorFile, buf, numBytes);
+
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    while (buf[i++] != '|'); // skip first column
+
+    int ownerId = buf[i] - '0';
+    while (buf[++i] != '\n')
+      ownerId = ownerId * 10 + (buf[i] - '0');
+
+    commentOwner.push_back(ownerId);
+
+    // readBuffer[i] now points to \n
+    ++i;
+  }
+
+  free(buf);
+  close(commentCreatorFile);
+}
+
+void readCommentReplies(string commentReplyFilename,
+                        const vector<int>& commentOwner) {
+  // For file reading
+  char* buf;
+  int charsRead, numBytes;
+  struct stat fstatBuffer;
+  int i = 0;
+
+  int commentReplyFile = open(commentReplyFilename.c_str(), O_RDONLY);
+  
+  fstat(commentReplyFile, &fstatBuffer);
+  numBytes = fstatBuffer.st_size;
+
+  buf = (char*) malloc(sizeof(char) * numBytes);
+  charsRead = read(commentReplyFile, buf, numBytes);
+
+  i = 0;
+  while(buf[i++] != '\n'); // skip first line
+
+  for (; i < charsRead;) {
+    int cid1 = buf[i] - '0';
+    while (buf[++i] != '|')
+      cid1 = cid1 * 10 + (buf[i] - '0');
+
+    int cid2 = buf[++i] - '0';
+    while (buf[++i] != '\n')
+      cid2 = cid2 * 10 + (buf[i] - '0');
+
+    incrementEdgeWeight(commentOwner[cid1/10], commentOwner[cid2/10]);
+
+    // readBuffer[i] now points to \n
+    ++i;
+  }
+
+  free(buf);
+  close(commentReplyFile);
+}
+
 void computeEdgeWeights(string commentCreatorFilename,
                         string commentReplyFilename) {
-  FILE* commentCreatorFile = fopen(commentCreatorFilename.c_str(), "r");
 
+  //double start; // for profiling
+
+  //start = get_wall_time();
   vector<int> commentOwner;
-  int commentId;
-  int ownerId;
+  readCommentCreators(commentCreatorFilename, commentOwner);
+  //printf("Finished reading comment owner in %.4f s\n", get_wall_time() - start);
 
-  fscanf(commentCreatorFile, "%*[^\n]\n");
-  while (fscanf(commentCreatorFile, "%d|%d\n", &commentId, &ownerId) != EOF) {
-    commentOwner.push_back(ownerId);
-  }
-  fclose(commentCreatorFile);
+  //start = get_wall_time();
+  readCommentReplies(commentReplyFilename, commentOwner);
+  //printf("Finished reading comment reply in %.4f s\n", get_wall_time() - start);
 
-  FILE* commentReplyFile = fopen(commentReplyFilename.c_str(), "r");
-  
-  int cid1, cid2;
-
-  fscanf(commentReplyFile, "%*[^\n]\n");
-  while (fscanf(commentReplyFile, "%d|%d\n", &cid1, &cid2) != EOF) {
-    incrementEdgeWeight(commentOwner[cid1/10], commentOwner[cid2/10]);
-  }
-  fclose(commentReplyFile);
+  //start = get_wall_time();
 
   for (unsigned int u = 0; u < nverts; u++) {
     for (vector<Edge>::iterator e = graph[u].begin();
@@ -353,6 +672,8 @@ void computeEdgeWeights(string commentCreatorFilename,
       e->second = minWeight;
     }
   }
+
+  //printf("Edge weight compute took %.4f\n", get_wall_time() - start);
 }
 
 void shortestPathSum(int source, const vector<bool>& valid,
@@ -366,13 +687,21 @@ void shortestPathSum(int source, const vector<bool>& valid,
   queue<int> Q;
   Q.push(source);
 
+  int n1s = 0;
+  int n2s = 0;
+
   while(!Q.empty()) {
     int u = Q.front();
+    Q.pop();
     dsum += d[u];
     nreachable++;
 
-    Q.pop();
-    for (unsigned int j = 0; j < graph[u].size(); j++) {
+    if (d[u] > 3) {
+      continue;
+    }
+
+    unsigned int nnbors = graph[u].size();
+    for (unsigned int j = 0; j < nnbors; j++) {
       int v = graph[u][j].first;
       if (!valid[v])
         continue;
@@ -401,10 +730,8 @@ bool isPersonMemberOfForumWithTag(int personId, int tagId) {
   return (personForumTags[personId].count(tagId) > 0);
 }
 
-void shortestPath(int source, int minWeight, int tagId,
-                  vector<bool>& isValid,
-                  vector<int>& d) {
-  d = vector<int>(nverts, INT_MAX);
+void shortestPath(int source, int minWeight,
+                  vector<uint8_t>& d) {
   d[source] = 0;
 
   queue<int> Q;
@@ -413,14 +740,11 @@ void shortestPath(int source, int minWeight, int tagId,
   while(!Q.empty()) {
     int u = Q.front();
     Q.pop();
-    for (vector<Edge>::iterator f = graph[u].begin();
-         f != graph[u].end(); f++) {
-      int v = f->first;
-      if (f->second <= minWeight)
+    for (int j = 0; j < graph[u].size(); j++) {
+      int v = graph[u][j].first;
+      if (graph[u][j].second <= minWeight)
         continue;
-      if (tagId > 0 && !isValid[v])
-        continue;
-      if (d[u] + 1 < d[v]) {
+      if (d[v] == INF8) {
         d[v] = d[u] + 1;
         Q.push(v);
       }
@@ -429,40 +753,50 @@ void shortestPath(int source, int minWeight, int tagId,
 }
 
 void constructGraph(string dataDir) {
+
   string personFile = dataDir + "/person.csv";
   createNodes(personFile);
-
+  
   string personKnowsFile = dataDir + "/person_knows_person.csv";
-  
-  createEdges(personKnowsFile);
-  
-  string commentCreatorFile = dataDir + "/comment_hasCreator_person.csv";
-  string commentReplyFile = dataDir + "/comment_replyOf_comment.csv";
-  computeEdgeWeights(commentCreatorFile, commentReplyFile);
+  thread createEdgesThread(createEdges, personKnowsFile);
+
+  string personForumsFile = dataDir + "/forum_hasMember_person.csv";
+  string forumTagsFile = dataDir + "/forum_hasTag_tag.csv";
+  thread forumTagsThread(readPersonForumTags, personForumsFile, forumTagsFile);
 
   string tagNamesFile = dataDir + "/tag.csv";
-  readTagNames(tagNamesFile);
+  thread tagNamesThread(readTagNames, tagNamesFile);
 
   string personTagsFile = dataDir + "/person_hasInterest_tag.csv";
-  assignPersonTags(personTagsFile);
+  thread personTagsThread(assignPersonTags, personTagsFile);
 
   string organizationLocatedInFile = dataDir + "/organisation_isLocatedIn_place.csv";
   string personStudyAtFile = dataDir + "/person_studyAt_organisation.csv";
   string personWorkAtFile = dataDir + "/person_workAt_organisation.csv";
   string personInCityFile = dataDir + "/person_isLocatedIn_place.csv";
-  readPersonLocations(organizationLocatedInFile,
-                      personStudyAtFile, personWorkAtFile,
-                      personInCityFile);
+  thread personLocationThread(readPersonLocations, organizationLocatedInFile,
+                              personStudyAtFile, personWorkAtFile,
+                              personInCityFile);
 
   string parentLocationFile = dataDir + "/place_isPartOf_place.csv";
-  readParentLocations(parentLocationFile);
+  thread parentLocationThread(readParentLocations, parentLocationFile);
 
   string placeNameFile = dataDir + "/place.csv";
-  readPlaceNames(placeNameFile);
+  thread placeNamesThread(readPlaceNames, placeNameFile);
 
-  string personForumsFile = dataDir + "/forum_hasMember_person.csv";
-  string forumTagsFile = dataDir + "/forum_hasTag_tag.csv";
-  readPersonForumTags(personForumsFile, forumTagsFile);
+  createEdgesThread.join();
+  string commentCreatorFile = dataDir + "/comment_hasCreator_person.csv";
+  string commentReplyFile = dataDir + "/comment_replyOf_comment.csv";
+  thread edgeWeightsThread(computeEdgeWeights, commentCreatorFile,
+                           commentReplyFile);
+
+  forumTagsThread.join();
+  tagNamesThread.join();
+  personTagsThread.join();
+  personLocationThread.join();
+  parentLocationThread.join();
+  placeNamesThread.join();
+  edgeWeightsThread.join();
 }
 
 bool isValidPersonLocation(int personId, vector<int> placeIds) {
@@ -769,10 +1103,9 @@ findTopPairs(int maxHops, vector<int> placeIds,
 
 void solveQuery1(int source, int dest, int minWeight,
                  char result[RESULT_BUF_SZ]) {
-  vector<bool> isValid;
-  vector<int> shortestDists;
-  shortestPath(source, minWeight, -1, isValid, shortestDists);
-  if (shortestDists[dest] == INT_MAX) {
+  vector<uint8_t> shortestDists(nverts, INF8);
+  shortestPath(source, minWeight, shortestDists);
+  if (shortestDists[dest] == INF8) {
     snprintf(result, RESULT_BUF_SZ, "-1");
   } else {
     snprintf(result, RESULT_BUF_SZ, "%d", shortestDists[dest]);
@@ -916,8 +1249,10 @@ int main(int argc, char* argv[]) {
   }
 
   string dataDir = argv[1];
+  double now = get_wall_time();
   constructGraph(dataDir);
 
   string queryFile = argv[2];
+  now = get_wall_time();
   solveQueries(queryFile);
 }
