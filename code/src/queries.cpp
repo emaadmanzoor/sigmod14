@@ -773,20 +773,21 @@ void computeEdgeWeights(string commentCreatorFilename,
 #endif
 }
 
-void shortestPathSum(int source, const vector<bool>& valid,
-                     int &nreachable, int &dsum) {
-  vector<uint8_t> d(nverts, INF8);
+void shortestPathSum(uint32_t source, const vector<uint32_t>& V,
+                     const vector<uint32_t>& E, int &nreachable, int &dsum) {
+  vector<uint8_t> d(V.size() - 1, INF8);
 
   d[source] = 0;
   dsum = 0;
   nreachable = 0;
 
-  queue<int> Q;
+  queue<uint32_t> Q;
   Q.push(source);
 
   while(!Q.empty()) {
-    int u = Q.front();
+    uint32_t u = Q.front();
     Q.pop();
+
     dsum += d[u];
     nreachable++;
 
@@ -794,11 +795,8 @@ void shortestPathSum(int source, const vector<bool>& valid,
       continue;
     }
 
-    for (uint32_t offset = startEdgeOffset(u);
-         offset <= endEdgeOffset(u); offset++) {
-      int v = graph[offset];
-      if (!valid[v])
-        continue;
+    for (uint32_t offset = V[u]; offset < V[u+1]; offset++) {
+      uint32_t v = E[offset];
       if (d[v] == INF8) {
         d[v] = d[u] + 1;
         Q.push(v);
@@ -808,9 +806,10 @@ void shortestPathSum(int source, const vector<bool>& valid,
 }
 
 
-void getClosenessCentrality(int personId, const vector<bool>& valid, float *cc) {
+void getClosenessCentrality(uint32_t source, const vector<uint32_t>& V,
+                            const vector<uint32_t>& E, float *cc) {
   int dsum, nreachable;
-  shortestPathSum(personId, valid, nreachable, dsum);
+  shortestPathSum(source, V, E, nreachable, dsum);
 
   if (dsum == 0)
     *cc = 0.0;
@@ -1107,43 +1106,68 @@ void findTopTags(string date, int k,
 
 void findTopCloseness(int tagId, int k, vector<pair<float,uint32_t>>& closenessCentralities) {
 
-  // Collect valid vertices and their degrees in the induced subgraph
-  vector<bool> valid = vector<bool>(nverts, false);
-  vector<uint32_t> vertices;
+#ifndef NDEBUG
+  double now = get_wall_time();
+#endif
+
+  // Create the induced subgraph
+  vector<uint32_t> M;               // Induced subgraph -> graph
+  vector<uint32_t> V;               // CSR vertices
+  vector<uint32_t> E;               // CSR edges
 
   uint8_t maxDegree = 60;
-  if (k >= 10)
-    maxDegree = 50;
+  vector<uint32_t> vertices;        // With degree > maxDegree
 
-  for (uint32_t u = 0; u < nverts; u++) {
-    if (isPersonMemberOfForumWithTag(u, tagId)) {
+  {
+    vector<int> R(nverts, -1);        // Graph -> induced subgraph
 
-      valid[u] = true;
+    // First fill the m and r maps
+    for (uint32_t u = 0; u < nverts; u++) {
+      if (isPersonMemberOfForumWithTag(u, tagId)) {
+        R[u] = M.size();
+        M.push_back(u);
+      }
+    }
+
+    // Then induce the vertices and edges
+    for (uint32_t induced_u = 0; induced_u < M.size(); induced_u++) {
+      uint32_t u = M[induced_u];
+
+      V.push_back(E.size());
+
       uint8_t degree = 0;
-
       for (uint32_t offset = startEdgeOffset(u);
-           offset < endEdgeOffset(u); offset++) {
+           offset <= endEdgeOffset(u); offset++) {
 
         uint32_t v = graph[offset];
+        int induced_v = R[v];
 
-        if (isPersonMemberOfForumWithTag(v, tagId))
+        if (induced_v >= 0) {
+          E.push_back(induced_v);
           degree++;
+        }
       }
 
-      if (degree >= 60)
-        vertices.push_back(u);
+      if (degree >= maxDegree)
+        vertices.push_back(induced_u);
     }
   }
+
+  V.push_back(E.size()); // sentinel
+
+#ifndef NDEBUG
+  fprintf(stderr, "Inducing graph took %.10f\n", get_wall_time() - now);
+#endif
 
   closenessCentralities = vector<pair<float,uint32_t>>(vertices.size());
 
   //{
     //ThreadPool pool(QUERY4_NUM_THREADS);
     for (uint32_t i = 0; i < vertices.size(); i++) {
-      uint32_t personId = vertices[i];
-      closenessCentralities[i].second = personId;
-      getClosenessCentrality(personId, valid, &(closenessCentralities[i].first));
-      //pool.enqueue(getClosenessCentrality, personId, valid, &(closenessCentralities[i].first));
+      uint32_t induced_u = vertices[i];
+      closenessCentralities[i].second = M[induced_u];
+      getClosenessCentrality(induced_u, V, E, &(closenessCentralities[i].first));
+      //pool.enqueue(getClosenessCentrality, induced_u, V, E, &(closenessCentralities[i].first));
     }
   //}
 
