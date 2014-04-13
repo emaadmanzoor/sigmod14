@@ -25,7 +25,7 @@
 #define MAX_NUM_THREADS 8
 #define QUERY4_NUM_THREADS 8
 #define INF8 100
-//#define NDEBUG
+#define NDEBUG
 
 using namespace std;
 
@@ -82,19 +82,16 @@ inline uint32_t startEdgeOffset(uint32_t v) {
 
 // Returns an offset into the edges vector
 inline uint32_t endEdgeOffset(uint32_t v) {
-  if (v == nverts - 1)
-    return nverts + nedges - 1;
-  else
-    return graph[v+1] - 1;
+  return graph[v+1] - 1;
 }
 
 // Takes a graph offset, sets weight
 inline void setWeight(uint32_t offset, uint16_t weight) {
-  weights[offset - nverts] = weight;
+  weights[offset - nverts - 1] = weight;
 }
 
 inline uint16_t getWeight(uint32_t offset) {
-  return weights[offset - nverts];
+  return weights[offset - nverts - 1];
 }
 
 void readTagNames(string tagNamesFilename) {
@@ -486,7 +483,7 @@ void createNodes(string personFilename) {
   else if (nverts == 10000)
     query4hops = 3;
   else
-    query4hops = 3;
+    query4hops = 4;
 
   sort(personBirthdays.begin(), personBirthdays.end());
   birthday = vector<string>(nverts);
@@ -595,14 +592,16 @@ void createEdges(string personKnowsFilename) {
   sort(sortedEdges.begin(), sortedEdges.end());
 
   nedges = sortedEdges.size();
-  graph = vector<uint32_t>(nverts + nedges, 0);
+  graph = vector<uint32_t>(nverts + 1 + nedges, 0);
+
+  graph[nverts] = nverts + nedges + 1; // sentinel
 
   uint32_t currentSource = 0;
   uint32_t currentOffset = 0;
   while(currentSource < nverts) {
-    graph[currentSource] = currentOffset + nverts;
+    graph[currentSource] = currentOffset + nverts + 1;
     while(sortedEdges[currentOffset].first == currentSource) {
-      graph[currentOffset + nverts] = sortedEdges[currentOffset].second;
+      graph[currentOffset + nverts + 1] = sortedEdges[currentOffset].second;
       currentOffset++;
     }
     currentSource++;
@@ -809,16 +808,14 @@ void shortestPathSum(int source, const vector<bool>& valid,
 }
 
 
-void getClosenessCentrality(int personId, const vector<bool>& valid, pair<float,int> *p) {
+void getClosenessCentrality(int personId, const vector<bool>& valid, float *cc) {
   int dsum, nreachable;
   shortestPathSum(personId, valid, nreachable, dsum);
 
-  p->second = personId;
-
   if (dsum == 0)
-    p->first = 0.0;
+    *cc = 0.0;
   else
-    p->first = (float) nreachable / dsum;
+    *cc = (float) nreachable / dsum;
 }
 
 bool isPersonMemberOfForumWithTag(int personId, int tagId) {
@@ -1108,30 +1105,48 @@ void findTopTags(string date, int k,
   }
 }
 
-void findTopCloseness(int tagId, vector<pair<float,int>>& closenessCentralities) {
+void findTopCloseness(int tagId, int k, vector<pair<float,uint32_t>>& closenessCentralities) {
 
-  int nvalid = 0;
+  // Collect valid vertices and their degrees in the induced subgraph
   vector<bool> valid = vector<bool>(nverts, false);
-  for (uint32_t i = 0; i < nverts; i++) {
-    if (isPersonMemberOfForumWithTag(i, tagId)) {
-      valid[i] = true;
-      nvalid++;
+  vector<uint32_t> vertices;
+
+  uint8_t maxDegree = 60;
+  if (k >= 10)
+    maxDegree = 50;
+
+  for (uint32_t u = 0; u < nverts; u++) {
+    if (isPersonMemberOfForumWithTag(u, tagId)) {
+
+      valid[u] = true;
+      uint8_t degree = 0;
+
+      for (uint32_t offset = startEdgeOffset(u);
+           offset < endEdgeOffset(u); offset++) {
+
+        uint32_t v = graph[offset];
+
+        if (isPersonMemberOfForumWithTag(v, tagId))
+          degree++;
+      }
+
+      if (degree >= 60)
+        vertices.push_back(u);
     }
   }
-  
-  closenessCentralities.resize(nvalid);
 
-  {
-    ThreadPool pool(QUERY4_NUM_THREADS);
+  closenessCentralities = vector<pair<float,uint32_t>>(vertices.size());
 
-    int bfsno = 0;
-    for (uint32_t personId = 0; personId < nverts; personId++) {
-      if (!valid[personId])
-        continue;
-      pool.enqueue(getClosenessCentrality, personId, valid, &closenessCentralities[bfsno++]);
+  //{
+    //ThreadPool pool(QUERY4_NUM_THREADS);
+    for (uint32_t i = 0; i < vertices.size(); i++) {
+      uint32_t personId = vertices[i];
+      closenessCentralities[i].second = personId;
+      getClosenessCentrality(personId, valid, &(closenessCentralities[i].first));
+      //pool.enqueue(getClosenessCentrality, personId, valid, &(closenessCentralities[i].first));
     }
-  }
-  
+  //}
+
   sort(closenessCentralities.begin(), closenessCentralities.end(),
        float_greater_then_numeric_lesser);
 }
@@ -1278,9 +1293,9 @@ void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]) {
   double now = get_wall_time();
 #endif
 
-  vector<pair<float,int>> topcentral;
+  vector<pair<float,uint32_t>> topcentral;
 
-  findTopCloseness(tagId, topcentral);
+  findTopCloseness(tagId, k, topcentral);
 
   string r = "";
   if (topcentral.size() > 0) {
