@@ -14,6 +14,7 @@
 #include "ThreadPool.h"
 #include <cstdint>
 #include <sys/time.h>
+#include <xmmintrin.h>
 
 // For C-style IO
 #include <sys/types.h>
@@ -30,7 +31,7 @@
 using namespace std;
 
 // Function prototypes
-void shortestPath(int source, int minWeight, vector<uint8_t>& d);
+void shortestPath(uint32_t source, int minWeight, vector<uint8_t>& d);
 void readForumTags(string forumTagsFile,
                    vector<vector<int>>& forumTags);
 void solveQuery1(int source, int dest, int minWeight,
@@ -795,6 +796,9 @@ void shortestPathSum(uint32_t source, const vector<uint32_t>& V,
       continue;
     }
 
+    _mm_prefetch((const char *)(&E[V[u]]), _MM_HINT_T0);
+    _mm_prefetch((const char *)(&V[u+1]), _MM_HINT_T0);
+
     for (uint32_t offset = V[u]; offset < V[u+1]; offset++) {
       uint32_t v = E[offset];
       if (d[v] == INF8) {
@@ -821,16 +825,20 @@ bool isPersonMemberOfForumWithTag(int personId, int tagId) {
   return (personForumTags[personId].count(tagId) > 0);
 }
 
-void shortestPath(int source, int minWeight,
+void shortestPath(uint32_t source, int minWeight,
                   vector<uint8_t>& d) {
   d[source] = 0;
 
-  queue<int> Q;
+  queue<uint32_t> Q;
   Q.push(source);
 
   while(!Q.empty()) {
     int u = Q.front();
     Q.pop();
+
+    _mm_prefetch((const char *)(&graph[graph[u]]), _MM_HINT_T0);
+    _mm_prefetch((const char *)(&weights[graph[u]]), _MM_HINT_T0);
+    _mm_prefetch((const char *)(&graph[u+1]), _MM_HINT_T0);
 
     for (uint32_t offset = startEdgeOffset(u);
          offset <= endEdgeOffset(u); offset++) {
@@ -1308,7 +1316,7 @@ void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 
 #ifndef NDEBUG
-  fprintf(stderr, "Query 3 took %.4f s\n", get_wall_time() - now);
+  fprintf(stderr, "Query 3 took %.4f h=%d k=%d s\n", get_wall_time() - now, h, k);
 #endif
 }
 
