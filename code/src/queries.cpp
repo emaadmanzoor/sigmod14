@@ -25,7 +25,7 @@
 #define MAX_NUM_THREADS 8
 #define QUERY4_NUM_THREADS 8
 #define INF8 100
-//#define NDEBUG
+#define NDEBUG
 
 using namespace std;
 
