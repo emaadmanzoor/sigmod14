@@ -56,6 +56,7 @@ unordered_map< string, vector<int> > placeNameToId;
 
 // Query 4 tags
 vector< unordered_set<int> > personForumTags;
+unordered_map<uint32_t,uint32_t> tagFreqs;
 
 unordered_map<int, string> tagIdToName;
 unordered_map<string, int> tagNameToId;
@@ -146,7 +147,7 @@ void readPersonForumTags(string personForumsFilename,
                          string forumTagsFilename) {
   vector<vector<int>> forumTags;
   readForumTags(forumTagsFilename, forumTags);
-  
+
   // For file reading
   char* buf;
   int charsRead, numBytes;
@@ -245,7 +246,7 @@ void readCsvToMap(vector< unordered_set<int> >& map,
   int i = 0;
 
   int csvFile = open(csvFilename.c_str(), O_RDONLY);
-  
+
   fstat(csvFile, &fstatBuffer);
   numBytes = fstatBuffer.st_size;
 
@@ -331,7 +332,7 @@ void readCsvToVector(string csvFilename,
 
     while(buf[i++] != '\n'); // skip line
   }
-  
+
   free(buf);
   close(csvFile);
 }
@@ -526,6 +527,8 @@ void assignPersonTags(string personTagsFilename) {
     while (buf[++i] != '\n')
       tagId = tagId * 10 + (buf[i] - '0');
 
+    tagFreqs[tagId]++;
+
     tagPersons[tagId].push_back(personId);
     personTags[personId].insert(tagId);
 
@@ -658,7 +661,7 @@ void readCommentReplies(string commentReplyFilename,
   int i = 0;
 
   int commentReplyFile = open(commentReplyFilename.c_str(), O_RDONLY);
-  
+
   fstat(commentReplyFile, &fstatBuffer);
   numBytes = fstatBuffer.st_size;
 
@@ -859,7 +862,7 @@ void constructGraph(string dataDir) {
 
   string personFile = dataDir + "/person.csv";
   createNodes(personFile);
-  
+
   string personKnowsFile = dataDir + "/person_knows_person.csv";
   thread createEdgesThread(createEdges, personKnowsFile);
 
@@ -947,7 +950,7 @@ int findRange(int tagId, string date, vector<int>& validNodesForTag) {
     int i = validNodesForTag[x];
     if (visited[i])
       continue;
-    
+
     int currentSize = 0;
 
     stack<uint32_t> s;
@@ -955,7 +958,7 @@ int findRange(int tagId, string date, vector<int>& validNodesForTag) {
 
     while(!s.empty()) {
       uint32_t u = s.top();
-      s.pop(); 
+      s.pop();
 
       if (visited[u])
         continue;
@@ -981,17 +984,17 @@ int findRange(int tagId, string date, vector<int>& validNodesForTag) {
 }
 
 int getNumberOfCommonTags(int personId1, int personId2) {
-  unordered_set<int> personTags1 = personTags[personId1];
-  unordered_set<int> personTags2 = personTags[personId2];
-  if (personTags1.size() > personTags2.size()) {
-    personTags1 = personTags[personId2];
-    personTags2 = personTags[personId1];
+  unordered_set<int> *personTags1 = &personTags[personId1];
+  unordered_set<int> *personTags2 = &personTags[personId2];
+  if ((*personTags1).size() > (*personTags2).size()) {
+    personTags1 = &personTags[personId2];
+    personTags2 = &personTags[personId1];
   }
 
   int numberOfCommonTags = 0;
-  for (unordered_set<int>::iterator it = personTags1.begin();
-       it != personTags1.end(); ++it) {
-    if (personTags2.count(*it) > 0)
+  for (unordered_set<int>::iterator it = (*personTags1).begin();
+       it != (*personTags1).end(); ++it) {
+    if ((*personTags2).count(*it) > 0)
       numberOfCommonTags++;
   }
 
@@ -1044,6 +1047,52 @@ bool numeric_greater_then_numeric_lesser(const pair< int, pair<int,int> >& lhs,
       return false;
   }
 }
+
+/*struct numeric_greater_then_numeric_lesser3 {
+  bool operator() (const pair< int, int >& lhs,
+                  const pair< int, int >& rhs) {
+    if (lhs.first < rhs.first)
+      return true;
+    else if (lhs.first > rhs.first)
+      return false;
+    else {
+      if (lhs.second > rhs.second)
+        return true;
+      else
+        return false;
+    }
+  }
+};*/
+
+bool numeric_greater_then_numeric_lesser2(const pair< int, int >& lhs,
+                                          const pair< int, int >& rhs) {
+  if (lhs.first > rhs.first)
+    return true;
+  else if (lhs.first < rhs.first)
+    return false;
+  else {
+    if (lhs.second < rhs.second)
+      return true;
+    else
+      return false;
+  }
+}
+
+struct numeric_lesser_then_numeric_greater {
+  bool operator() (const pair< uint32_t, pair<uint32_t,uint32_t> >& lhs,
+                   const pair< uint32_t, pair<uint32_t,uint32_t> >& rhs) {
+    if (lhs.first > rhs.first)
+      return true;
+    else if (lhs.first < rhs.first)
+      return false;
+    else {
+      if (lhs.second < rhs.second)
+        return true;
+      else
+        return false;
+    }
+  }
+};
 
 bool float_greater_then_numeric_lesser(const pair< float, int >& lhs,
                                        const pair< float, int >& rhs) {
@@ -1185,41 +1234,92 @@ void findTopCloseness(int tagId, int k, vector<pair<float,uint32_t>>& closenessC
 
 void
 findTopPairs(int maxHops, vector<int> placeIds,
-             vector< pair< int, pair<uint32_t, unsigned int> > >& candidates) {
+             // Will contain (#common-tags, (pid1, pid2))
+             priority_queue<pair<uint32_t, pair<uint32_t, uint32_t>>,
+                            vector<pair<uint32_t, pair<uint32_t, uint32_t>>>,
+                            numeric_lesser_then_numeric_greater>& topPairs,
+             uint32_t k) {
 
+  vector<pair<uint32_t,uint32_t>> sortedNumTags;
   vector<bool> isValid = vector<bool>(nverts, false);
   for (uint32_t i = 0; i < nverts; i++) {
     if (isValidPersonLocation(i, placeIds)) {
       isValid[i] = true;
+      uint32_t freq = 0;
+      //printf("v=%d\ttagFreqs=[", i);
+      for (unordered_set<int>::const_iterator it = personTags[i].begin();
+           it != personTags[i].end(); ++it) {
+        freq += tagFreqs[*it];
+        //printf(" %d:%d ", *it, tagFreqs[*it]);
+      }
+      //printf("]\tfreq=%d\tnumtags=%d\n", freq, personTags[i].size());
+      //sortedNumTags.push_back(make_pair(personTags[i].size(), i));
+      sortedNumTags.push_back(make_pair(freq, i));
     }
   }
 
-  for (uint32_t i = 0; i < nverts; i++) {
-    // Start a h-hop DFS from node i
-    if (!isValidPersonLocation(i, placeIds))
-      continue;
+  // Sort vertices in decreasing order of #tags, then increasing order of node ID
+  sort(sortedNumTags.begin(), sortedNumTags.end(), numeric_greater_then_numeric_lesser2);
+
+  uint32_t topPairsSize = 0;
+  uint32_t currentMinTags = 0;
+  uint32_t currentMinP1 = UINT_MAX;
+  uint32_t currentMinP2 = UINT_MAX;
+
+  for (uint32_t idx = 0; idx < sortedNumTags.size(); idx++) {
+    uint32_t i = sortedNumTags[idx].second;
+
+    //printf("DFS from %d numtags = %d?\n", i, (int) personTags[i].size());
+
+    //topPairsSize = topPairs.size();
+    //if (topPairsSize > 0) {
+      //currentMinTags = topPairs.top().first;
+      //currentMinP1 = topPairs.top().second.first;
+      //currentMinP2 = topPairs.top().second.second;
+      //printf("TopPairs.top: (%d, (%d|%d))\n", currentMinTags, currentMinP1, currentMinP2);
+    //}
+
+    uint32_t i_tags = personTags[i].size();
+
+    if (topPairsSize >= k) {
+      if (i_tags < currentMinTags) {
+        //printf("Skipping DFS from %d\n", i);
+        //break;
+        continue;
+      } else if (i_tags == currentMinTags) {
+        if (i > currentMinP1) {
+          //printf("Skipping DFS from %d\n", i);
+          //break;
+          continue;
+        }
+      }
+    }
+
+    //printf("Going ahead with DFS from %d\n", i);
 
     vector<bool> visited = vector<bool>(nverts, false);
     vector<int> numHops = vector<int>(nverts, INT_MAX);
-    vector<bool> isCandidate = vector<bool>(nverts, false);
 
     stack<uint32_t> s;
     s.push(i);
     numHops[i] = 0;
 
+    // h-hop DFS to collect all candidate nodes x for i, later evaluate i|x
+    vector<bool> isCandidate(nverts, false);
+    vector<pair<uint32_t,uint32_t>> candidates;
+
+    // h-hop DFS from i, evaluates pair i|j, where j > i
     while(!s.empty()) {
+      //pair<uint32_t,uint32_t> p = s.top();
       uint32_t u = s.top();
       s.pop();
 
       if (visited[u])
         continue;
 
-      if (!isCandidate[u] && u > i &&
-          isValid[u]) { 
-
-        int numberOfCommonTags = getNumberOfCommonTags(i, u);
-        candidates.push_back(make_pair(numberOfCommonTags,
-                                       make_pair(i, u)));
+      if (!isCandidate[u] && isValid[u] && u > i) {
+        //printf("\tChecking pair %d|%d\n", i, u);
+        candidates.push_back(make_pair(personTags[u].size(), u));
         isCandidate[u] = true;
       }
 
@@ -1228,21 +1328,78 @@ findTopPairs(int maxHops, vector<int> placeIds,
 
       visited[u] = true;
 
+      _mm_prefetch((const char *)(&graph[u]), _MM_HINT_T0);
+      _mm_prefetch((const char *)(&graph[graph[u]]), _MM_HINT_T0);
+
       for (uint32_t offset = startEdgeOffset(u);
            offset <= endEdgeOffset(u); offset++) {
+
         uint32_t v = graph[offset];
 
         if (!visited[v]) {
+          //printf("Pushed %d\n", v);
           s.push(v);
           if (numHops[u] + 1 < numHops[v])
-            numHops[v] = numHops[u] + 1;
+              numHops[v] = numHops[u] + 1;
         }
       }
     }
-  }
 
-  sort(candidates.begin(), candidates.end(),
-       numeric_greater_then_numeric_lesser);
+    // Evaluate i|u for u in candidates
+    sort(candidates.begin(), candidates.end(), numeric_greater_then_numeric_lesser2);
+    for (uint32_t c = 0; c < candidates.size(); c++) {
+      uint32_t u = candidates[c].second;
+      uint32_t u_tags = candidates[c].first;
+      //printf("\tTopPairs size = %d top: (%d, (%d|%d))\n", topPairsSize, currentMinTags,
+      //                                          currentMinP1,
+      //                                          currentMinP2);
+      //printf("Candidate pair %d|%d\n", i, u);
+      if (topPairsSize >= k) {
+        if (u_tags >= currentMinTags) {
+
+          uint32_t numberOfCommonTags = getNumberOfCommonTags(i, u);
+          //printf("\t\t%d|%d = %d\n", i, u, numberOfCommonTags);
+
+          if (numberOfCommonTags > currentMinTags) {
+            topPairs.pop();
+            topPairs.push(make_pair(numberOfCommonTags, make_pair(i, u)));
+            currentMinTags = topPairs.top().first;
+            currentMinP1 = topPairs.top().second.first;
+            currentMinP2 = topPairs.top().second.second;
+            //printf("\t\tPushed to topk (%d, %d|%d)\n", numberOfCommonTags, i, u);
+          } else if (numberOfCommonTags == currentMinTags) {
+            if (i < currentMinP1) {
+              topPairs.pop();
+              topPairs.push(make_pair(numberOfCommonTags, make_pair(i, u)));
+              currentMinTags = topPairs.top().first;
+              currentMinP1 = topPairs.top().second.first;
+              currentMinP2 = topPairs.top().second.second;
+              //printf("\t\tPushed to topk (%d, %d|%d)\n", numberOfCommonTags, i, u);
+            } else if (i == currentMinP1) {
+              if (u < currentMinP2) {
+                topPairs.pop();
+                topPairs.push(make_pair(numberOfCommonTags, make_pair(i, u)));
+                currentMinTags = topPairs.top().first;
+                currentMinP1 = topPairs.top().second.first;
+                currentMinP2 = topPairs.top().second.second;
+                //printf("\t\tPushed to topk (%d, %d|%d)\n", numberOfCommonTags, i, u);
+              }
+            }
+          }
+        } else {
+          break;
+        }
+      } else {
+          uint32_t numberOfCommonTags = getNumberOfCommonTags(i, u);
+          topPairs.push(make_pair(numberOfCommonTags, make_pair(i, u)));
+          currentMinTags = topPairs.top().first;
+          currentMinP1 = topPairs.top().second.first;
+          currentMinP2 = topPairs.top().second.second;
+          topPairsSize++;
+          //printf("\t\tPushed to topk (%d, %d|%d)\n", numberOfCommonTags, i, u);
+      }
+    }
+  }
 }
 
 void solveQuery1(int source, int dest, int minWeight,
@@ -1301,17 +1458,29 @@ void solveQuery3(int k, int h, string placeName, char result[RESULT_BUF_SZ]) {
   double now = get_wall_time();
 #endif
 
-  vector< pair<int, pair<uint32_t, unsigned int> > >
-    toppairs;
-  findTopPairs(h, placeNameToId[placeName], toppairs);
-  string r = "";
-  if (toppairs.size() > 0) {
-    r += to_string((long long) toppairs[0].second.first) + "|" +
-         to_string((long long) toppairs[0].second.second);
+  priority_queue<pair<uint32_t, pair<uint32_t, uint32_t>>,
+                 vector<pair<uint32_t, pair<uint32_t, uint32_t>>>,
+                 numeric_lesser_then_numeric_greater> topPairs;
+
+  findTopPairs(h, placeNameToId[placeName], topPairs, k);
+
+  vector<pair<uint32_t,uint32_t>> pairsToPrint;
+  while (topPairs.size() > 0) {
+    pairsToPrint.push_back(topPairs.top().second);
+    topPairs.pop();
   }
-  for (uint32_t i = 1; i < (unsigned int) k && i < toppairs.size(); i++) {
-    r += " " + to_string((long long) toppairs[i].second.first) + "|" +
-         to_string((long long) toppairs[i].second.second);
+
+  int numPairs = pairsToPrint.size();
+
+  string r = "";
+  if (pairsToPrint.size() > 0) {
+    r += to_string((long long) pairsToPrint[numPairs - 1].first) + "|" +
+         to_string((long long) pairsToPrint[numPairs - 1].second);
+  }
+
+  for (int i = numPairs - 2; i >= 0; i--) {
+    r += " " + to_string((long long) pairsToPrint[i].first) + "|" +
+               to_string((long long) pairsToPrint[i].second);
   }
   snprintf(result, RESULT_BUF_SZ, "%s", r.c_str());
 
