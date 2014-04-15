@@ -56,6 +56,7 @@ unordered_map< string, vector<int> > placeNameToId;
 
 // Query 4 tags
 vector< unordered_set<int> > personForumTags;
+unordered_map<uint32_t,uint32_t> tagFreqs;
 
 unordered_map<int, string> tagIdToName;
 unordered_map<string, int> tagNameToId;
@@ -525,6 +526,8 @@ void assignPersonTags(string personTagsFilename) {
     int tagId = buf[++i] - '0';
     while (buf[++i] != '\n')
       tagId = tagId * 10 + (buf[i] - '0');
+
+    tagFreqs[tagId]++;
 
     tagPersons[tagId].push_back(personId);
     personTags[personId].insert(tagId);
@@ -1241,9 +1244,17 @@ findTopPairs(int maxHops, vector<int> placeIds,
   vector<bool> isValid = vector<bool>(nverts, false);
   for (uint32_t i = 0; i < nverts; i++) {
     if (isValidPersonLocation(i, placeIds)) {
-      //printf("%d is valid\n", i);
       isValid[i] = true;
+      //uint32_t freq = 0;
+      //printf("v=%d\ttagFreqs=[", i);
+      //for (unordered_set<int>::const_iterator it = personTags[i].begin();
+      //     it != personTags[i].end(); ++it) {
+      //  freq += tagFreqs[*it];
+        //printf(" %d:%d ", *it, tagFreqs[*it]);
+      //}
+      //printf("]\tfreq=%d\tnumtags=%d\n", freq, personTags[i].size());
       sortedNumTags.push_back(make_pair(personTags[i].size(), i));
+      //sortedNumTags.push_back(make_pair(freq, i));
     }
   }
 
@@ -1272,12 +1283,14 @@ findTopPairs(int maxHops, vector<int> placeIds,
 
     if (topPairsSize >= k) {
       if (i_tags < currentMinTags) {
-        //printf("Skpping DFS from %d\n", i);
+        //printf("Skipping DFS from %d\n", i);
         break;
+        //continue;
       } else if (i_tags == currentMinTags) {
         if (i > currentMinP1) {
           //printf("Skipping DFS from %d\n", i);
           break;
+          //continue;
         }
       }
     }
