@@ -22,6 +22,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include "hyperloglog.hpp"
+
 #define RESULT_BUF_SZ 1024
 #define MAX_NUM_THREADS 8
 #define QUERY4_NUM_THREADS 8
@@ -29,6 +31,8 @@
 #define NDEBUG
 
 using namespace std;
+
+uint32_t seed = time(NULL);
 
 // Function prototypes
 void shortestPath(uint32_t source, int minWeight, vector<uint8_t>& d);
@@ -818,6 +822,8 @@ void getClosenessCentrality(uint32_t source, const vector<uint32_t>& V,
   int dsum, nreachable;
   shortestPathSum(source, V, E, nreachable, dsum);
 
+  printf("%d\t%d", source, dsum);
+
   if (dsum == 0)
     *cc = 0.0;
   else
@@ -1161,6 +1167,51 @@ void findTopTags(string date, int k,
   }
 }
 
+/*void printBinary(uint32_t v) {
+  for (int i = 31; i >= 0; i--)
+    printf("%d", ((v >> i) & 1));
+  printf("\n");
+}
+
+inline uint32_t countTrailingOnes(uint32_t v) {
+  v = ~v;
+  return __builtin_ctz(v);
+}
+
+inline uint32_t closenessHash(uint32_t nodeId) {
+  hash<uint32_t> h;
+  return h(nodeId);
+  //uint32_t out;
+  //MurmurHash3_x86_32(&nodeId, 32, seed, &out);
+  //return out;
+}
+
+inline void addNode(uint32_t sourceNodeId, uint32_t targetNodeId,
+                    vector<vector<uint32_t>>& B, uint32_t numBuckets) {
+  uint32_t hash = closenessHash(targetNodeId);
+  uint32_t bucketIdx = hash % numBuckets;
+  uint32_t bitIdx = __builtin_ctz(hash / numBuckets);
+  B[sourceNodeId][bucketIdx] |= (1 << bitIdx);
+}
+
+inline void merge(uint32_t sourceNode, uint32_t targetNode, vector<vector<uint32_t>>& B, uint32_t numBuckets) {
+  // Merges target into source, changing source
+  for (uint32_t i = 0; i < numBuckets; i++) {
+     B[sourceNode][i] |= B[targetNode][i];
+  }
+}
+
+inline uint32_t getCount(uint32_t nodeId, vector<vector<uint32_t>>& B, uint32_t numBuckets) {
+  uint32_t S = 0;
+
+  for (uint32_t i = 0; i < numBuckets; i++) {
+    uint32_t bucket = B[nodeId][i];
+    S += countTrailingOnes(bucket);
+  }
+
+  return (uint32_t) pow(2.0, (float) S / numBuckets) * (numBuckets / 0.77351);
+}*/
+
 void findTopCloseness(int tagId, int k, vector<pair<float,uint32_t>>& closenessCentralities) {
 
 #ifndef NDEBUG
@@ -1216,6 +1267,49 @@ void findTopCloseness(int tagId, int k, vector<pair<float,uint32_t>>& closenessC
   fprintf(stderr, "Inducing graph took %.10f\n", get_wall_time() - now);
 #endif
 
+  ////////// Approximate closeness
+
+  uint32_t numInducedVertices = V.size() - 1;
+  
+  // A sketch for each vertex
+  uint32_t registerBitWidth = 8;
+  vector<HyperLogLog> B(numInducedVertices, HyperLogLog(registerBitWidth)); 
+
+  // Initialize
+  vector<uint32_t> approxdsum(numInducedVertices, 0);
+  for (uint32_t i = 0; i < numInducedVertices; i++)
+    B[i].add((const char *) &i, 32);
+ 
+  uint32_t next = 0, curr;
+  for (uint32_t r = 1; r < 100; r++) {
+    printf("Iteration %d\n", r);
+    
+    curr = next;
+    next = 0; 
+
+    for (uint32_t v = 0; v < numInducedVertices; v++) {
+      uint32_t oldCount = (uint32_t) B[v].estimate();
+      
+      for (uint32_t offset = V[v]; offset < V[v+1]; offset++)
+        B[v].merge(B[E[offset]]);
+      
+      uint32_t newCount = B[v].estimate();
+
+      approxdsum[v] += r * (newCount - oldCount);
+
+      next += approxdsum[v];
+    }
+
+    if (curr == next)
+      break;
+  }
+  
+  //for (uint32_t i = 0; i < numInducedVertices; i++)
+  //  if (approxdsum[i] > 0.0001)
+  //    approxdsum[i] = numInducedVertices / CC[i];
+
+  ///////// End approximate closeness
+
   closenessCentralities = vector<pair<float,uint32_t>>(vertices.size());
 
   //{
@@ -1224,6 +1318,7 @@ void findTopCloseness(int tagId, int k, vector<pair<float,uint32_t>>& closenessC
       uint32_t induced_u = vertices[i];
       closenessCentralities[i].second = M[induced_u];
       getClosenessCentrality(induced_u, V, E, &(closenessCentralities[i].first));
+      printf("\t%d\t%d\n", M[induced_u], approxdsum[induced_u]);
       //pool.enqueue(getClosenessCentrality, induced_u, V, E, &(closenessCentralities[i].first));
     }
   //}
