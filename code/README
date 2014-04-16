@@ -1,17 +1,24 @@
-(1) Team Name:
+(1) Logistic Aggression:
 
 (2) Members
- - member 1's name, email, institution, department, and degree program
- - member 2's name, email, institution, department, and degree program
- - member 3's name, email, institution, department, and degree program
- ...
+
+- Emaad Ahmed Manzoor, emaadahmed.manzoor@kaust.edu.sa, MS
+- Tariq Alturkestani, tariq.alturkestani@kaust.edu.sa, PhD
+- Trisevgeni Rapakoulia, trisevgeni.rapakoulia@kaust.edu.sa, PhD
+
+Institution: King Abdullah University of Science and Technology
+Department: Computer Science
 
 (3) Supervisor Name: (if any)
 
+Panos Kalnis
+
 (4) Summary of Techniques
- - Query Type 1:
- - Query Type 2:
- - Query Type 3:
- - Query Type 4:
+ - Query Type 1: Weighted graph + BFS
+ - Query Type 2: DFS (to find connected component size) + pruning
+ - Query Type 3: k-hop BFS + pruning
+ - Query Type 4: BFS + pruning
 
 (5) Third Party Code:
+
+  - ThreadPool.h: https://github.com/progschj/ThreadPool
