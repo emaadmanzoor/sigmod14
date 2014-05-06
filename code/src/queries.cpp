@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <sys/time.h>
 #include <xmmintrin.h>
+#include <sys/mman.h>
 
 // For C-style IO
 #include <sys/types.h>
@@ -44,8 +45,10 @@ void solveQuery4(int k, int tagId, char result[RESULT_BUF_SZ]);
 vector<string> birthday;
 
 // CSR graph
-vector<uint16_t> weights;
-vector<uint32_t> graph;
+//vector<uint16_t> weights;
+uint16_t *weights;
+//vector<uint32_t> graph;
+uint32_t *graph;
 
 // Query 3 locations
 vector< unordered_set<int> > personStudyCities; // Person->StudyCity
@@ -596,7 +599,11 @@ void createEdges(string personKnowsFilename) {
   sort(sortedEdges.begin(), sortedEdges.end());
 
   nedges = sortedEdges.size();
-  graph = vector<uint32_t>(nverts + 1 + nedges, 0);
+  //graph = vector<uint32_t>(nverts + 1 + nedges, 0);
+  graph = (uint32_t *) mmap(NULL, sizeof(uint32_t) * (nverts + nedges + 1),
+                            PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
+                            -1, 0);
+  memset(graph, 0, sizeof(uint32_t) * (nverts + nedges + 1));
 
   graph[nverts] = nverts + nedges + 1; // sentinel
 
@@ -728,7 +735,11 @@ void computeEdgeWeights(string commentCreatorFilename,
   start = get_wall_time();
 #endif
 
-  weights = vector<uint16_t>(nedges, 0);
+  //weights = vector<uint16_t>(nedges, 0);
+  weights = (uint16_t *) mmap(NULL, sizeof(uint16_t) * (nedges),
+                              PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
+                              -1, 0);
+  memset(weights, 0, sizeof(uint16_t) * nedges);
 
   for (uint32_t i = 0; i  < commentReplies.size(); i++) {
     uint32_t source = commentReplies[i].first;
